@@ -3,7 +3,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python library for the **SutteARIMA** hybrid time series forecasting model, designed with the familiar **statsmodels** interface (`model = SutteARIMA(...)`, `res = model.fit()`, `res.summary()`).
+A Python library for the **SutteARIMA** hybrid time series forecasting model, designed with the familiar **statsmodels** interface (`model = SutteARIMA(data, order=(p, d, q))`, `res = model.fit()`, `res.summary()`).
 
 SutteARIMA combines the non-parametric **Alpha-Sutte (α-Sutte) Indicator** with the parametric **Box-Jenkins ARIMA** model by averaging their forecasts:
 
@@ -14,19 +14,14 @@ $$\hat{Z}_t^{\text{SutteARIMA}} = \frac{\hat{Z}_t^{\text{ARIMA}} + \hat{Z}_t^{\a
 ## Installation Directly from GitHub
 
 ```bash
-pip install git+https://github.com/BahmanOrujov/sutte-ARIMA.git
-```
-
-Or clone and import locally:
-```bash
-git clone https://github.com/BahmanOrujov/sutte-ARIMA.git
+pip install --upgrade git+https://github.com/BahmanOrujov/sutte-ARIMA.git
 ```
 
 ---
 
 ## Quickstart (Statsmodels Interface)
 
-Just 3 lines of code:
+Specify your chosen `order=(p, d, q)` and fit the model:
 
 ```python
 from sutte_arima import SutteARIMA
@@ -35,95 +30,117 @@ from sutte_arima import SutteARIMA
 data = [10.2, 10.8, 11.5, 11.9, 12.4, 13.1, 13.8, 14.5, 15.0, 15.8, 16.5, 17.2]
 train, test = data[:9], data[9:]
 
-# 2. Initialize and Fit (ARIMA order is auto-selected if omitted!)
-model = SutteARIMA(train)
+# 2. Initialize with your chosen order=(p, d, q) and Fit
+model = SutteARIMA(train, order=(0, 1, 1))
 res = model.fit()
 
-# 3. View Full Model Estimation & Accuracy Summary
+# 3. View Full Estimation & Evaluation Metrics Summary
 print(res.summary())
 ```
 
-### Output:
-```text
-======================================================================
-                 SutteARIMA Model Estimation Results                  
-======================================================================
- Dep. Variable       : y                      No. Observations : 9
- Model               : SutteARIMA(0, 2, 0)  Date             : Available
- ARIMA AIC           : -3.381           ARIMA BIC        : -3.435    
-----------------------------------------------------------------------
-                In-Sample Forecasting Accuracy Metrics                
-----------------------------------------------------------------------
- MAE                 : 0.0995           MSE              : 0.0163    
- RMSE                : 0.1278           R-squared (R2)   : 0.9813    
- MAPE (%)            : 0.7103    %      sMAPE (%)        : 0.7106    %
- MdAPE (%)           : 0.5600    %      Theil's IC (TIC) : 0.0046    
- Max Error (MaxAE)   : 0.2091           Mean Bias (MBE)  : 0.0159    
-----------------------------------------------------------------------
-                      Residual Diagnostic Checks                      
-----------------------------------------------------------------------
- Durbin-Watson       : 1.1721           Jarque-Bera (p)  : 0.8021    
-======================================================================
+---
+
+## Calling Key Attributes Directly in Code
+
+Access any model parameter or statistic directly via code attributes:
+
+```python
+print("ARIMA Order:       ", res.order)           # Returns: (0, 1, 1)
+print("AIC / AICc / BIC:  ", res.aic, res.aicc, res.bic)
+print("Log-Likelihood:    ", res.llf)
+print("Coefficients:      \n", res.params)
+print("P-values:          \n", res.pvalues)
+print("Standard Errors:   \n", res.bse)
+print("Durbin-Watson Stat:", res.durbin_watson)  # ~2.0 indicates no residual autocorrelation
+print("Jarque-Bera Test:  ", res.jarque_bera)     # Normality test: {'statistic': ..., 'p_value': ...}
+print("Fitted Values:     \n", res.fittedvalues)
+print("Residuals:         \n", res.resid)
 ```
 
 ---
 
-## Multi-Step Forecasting
+## All Model Matrices & Tables
 
-Generate multi-step ahead forecasts with 95% Confidence Intervals:
+All diagnostics and metrics can be exported or printed as pandas DataFrame matrices:
 
+### 1. Evaluation Metrics Matrix (`res.metrics_table()`)
 ```python
-forecast_df = res.forecast(steps=5, alpha=0.05)
-print(forecast_df)
-```
+# In-Sample accuracy on training data:
+print(res.metrics_table())
 
-| Horizon | SutteARIMA | ARIMA | AlphaSutte | Lower_95 | Upper_95 |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| 1 | 15.5740 | 15.50 | 15.6480 | 15.2961 | 15.8519 |
-| 2 | 16.1386 | 16.00 | 16.2772 | 15.5171 | 16.7601 |
-| 3 | 16.6905 | 16.50 | 16.8811 | 15.6506 | 17.7305 |
-| 4 | 17.2602 | 17.00 | 17.5205 | 15.7379 | 18.7825 |
-| 5 | 17.8282 | 17.50 | 18.1564 | 15.7670 | 19.8894 |
+# Out-of-Sample accuracy on held-out test data:
+print(res.metrics_table(test))
+```
+| Metric | Value (Out-of-Sample) | Description |
+|---|---|---|
+| **MAE** | 0.7878 | Mean Absolute Error |
+| **MSE** | 0.7230 | Mean Squared Error |
+| **RMSE** | 0.8503 | Root Mean Squared Error |
+| **MAPE (%)** | 4.7133% | Mean Absolute Percentage Error |
+| **MdAPE (%)** | 4.7493% | Median Absolute Percentage Error |
+| **sMAPE (%)** | 4.8440% | Symmetric MAPE |
+| **MASE** | 1.3131 | Mean Absolute Scaled Error (vs. naive benchmark) |
+| **R²** | 0.9511 | Coefficient of Determination |
+| **MaxAE** | 1.1817 | Maximum Absolute Error |
+| **MBE** | 0.7878 | Mean Bias Error (directional bias) |
+| **TIC** | 0.0264 | Theil's Inequality Coefficient (0 = perfect fit) |
+
+### 2. Parameters Matrix (`res.params_table()`)
+```python
+print(res.params_table())
+```
+Returns a matrix with `coef`, `std err`, `z`, `P>|z|`, `[0.025`, and `0.975]`.
+
+### 3. Residual Diagnostic Matrix (`res.diagnostics_table()`)
+```python
+print(res.diagnostics_table())
+```
+Returns a matrix of the **Ljung-Box** test across lags checking if residuals are Gaussian White Noise ($p \ge 0.05$).
+
+### 4. Step-by-Step Forecast Matrix (`res.forecast_table()`)
+```python
+print(res.forecast_table(steps=5, test_data=test))
+```
+Returns a matrix showing: `Actual`, `SutteARIMA`, `ARIMA`, `AlphaSutte`, `Lower_95`, `Upper_95`, `Abs_Error`, and `APE (%)`.
 
 ---
 
-## Comprehensive Evaluation Metrics
+## How Order $(p, d, q)$ is Selected
 
-Evaluate your model with one command:
+ARIMA order identification follows the classical **Box-Jenkins methodology**:
 
+1. **Determining $d$ (Differencing Order)**:
+   - Runs the **Augmented Dickey-Fuller (ADF)** unit-root test on level data $Y_t$.
+   - If non-stationary ($p \ge 0.05$), first differencing $\Delta Y_t = Y_t - Y_{t-1}$ is applied.
+   - If stationary ($p < 0.05$), $d = 1$. Otherwise, differencing is repeated ($d = 2$).
+2. **Determining $p$ and $q$**:
+   - Autoregressive order $p$ is guided by significant spikes in the Partial Autocorrelation Function (PACF).
+   - Moving Average order $q$ is guided by significant spikes in the Autocorrelation Function (ACF).
+3. **Information Criteria Minimization (AICc)**:
+   - Candidate models are estimated via Maximum Likelihood and ranked by **AICc**:
+     $$\text{AICc} = -2\ln(L) + 2k + \frac{2k(k+1)}{N - k - 1}$$
+   - The specification minimizing AICc provides the optimal balance of fit and parsimony.
+
+### Inspect the Order Selection Matrix On Demand:
 ```python
-# 1. In-Sample Metrics (on training data)
-print(res.metrics())
+best_order, search_matrix = SutteARIMA.auto_select_order(train, max_p=3, max_q=3)
 
-# 2. Out-of-Sample Metrics (on held-out test data)
-print(res.metrics(test))
+print("Recommended Order:", best_order)
+print(search_matrix.head(10))
 ```
-
-### Supported Metrics:
-- **MAE**: Mean Absolute Error
-- **MSE**: Mean Squared Error
-- **RMSE**: Root Mean Squared Error
-- **MAPE (%)**: Mean Absolute Percentage Error
-- **MdAPE (%)**: Median Absolute Percentage Error
-- **sMAPE (%)**: Symmetric Mean Absolute Percentage Error
-- **MASE**: Mean Absolute Scaled Error (vs. naive benchmark)
-- **R²**: Coefficient of Determination
-- **MaxAE**: Maximum Absolute Error
-- **MBE**: Mean Bias Error (directional bias)
-- **TIC**: Theil's Inequality Coefficient (0 = perfect fit)
-- **DW**: Durbin-Watson Residual Autocorrelation Test
-- **JB**: Jarque-Bera Residual Normality Test
 
 ---
 
-## Manual Order Specification
+## Recommended Orders for Common Datasets
 
-If you know the order from research (e.g. `ARIMA(0, 1, 1)` or `ARIMA(2, 2, 1)`):
-
-```python
-model = SutteARIMA(train, order=(0, 1, 1))
-res = model.fit()
-```
+| Dataset | Recommended $(p, d, q)$ | Reason / Source |
+|---|---|---|
+| **CRAN `sutteForecastR` Reference Series** | **`ARIMA(1, 1, 0)`** | ADF level non-stationary ($p=0.91$), diff stationary ($p=0.0009$), minimum AICc = 45.91. |
+| **Turkiye Sigorta Stock Price History** | **`ARIMA(2, 1, 3)`** or **`ARIMA(0, 1, 0)`** | First diff stationary ($p=0.0000$). `(2,1,3)` minimizes AICc; `(0,1,0)` minimizes BIC. |
+| **COVID-19 Spain Cases** | **`ARIMA(2, 2, 1)`** | Ahmar & Boj (2020), *Science of Total Environment*. |
+| **IBEX 35 Stock Index** | **`ARIMA(0, 1, 0)`** (with drift) | Ahmar & Boj (2020), *Science of Total Environment*. |
+| **Food Grain Yield (Rice, Pulses)** | **`ARIMA(0, 1, 1)`** | Ahmar et al. (2023), *Forecasting MDPI*. |
+| **Infant Mortality Rate** | **`ARIMA(0, 2, 2)`** | Ahmar et al. (2022), *CMC*. |
 
 ---
 
