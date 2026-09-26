@@ -1,7 +1,7 @@
 """
 SutteARIMA: Minimal, Statsmodels-Style Time Series Forecasting Model
 Combining Alpha-Sutte Indicator and Box-Jenkins ARIMA.
-Designed specifically for econometricians and empirical researchers.
+Designed specifically for econometricians, statisticians, and quantitative analysts.
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 # ==============================================================================
-# 1. EVALUATION METRICS ENGINE (Calculated strictly from model predictions)
+# 1. EVALUATION METRICS ENGINE
 # ==============================================================================
 
 def calculate_metrics(actual: Any, predicted: Any, train_data: Optional[Any] = None) -> Dict[str, float]:
     """
     Computes standard forecasting accuracy metrics from actual and predicted values:
-      - MAPE (%)  : Mean Absolute Percentage Error (primary metric in Sutte literature)
+      - MAPE (%)  : Mean Absolute Percentage Error (benchmark in Sutte literature)
       - MSE       : Mean Squared Error
       - RMSE      : Root Mean Squared Error
       - MAE       : Mean Absolute Error
@@ -93,11 +93,15 @@ def calculate_metrics(actual: Any, predicted: Any, train_data: Optional[Any] = N
 
 
 # ==============================================================================
-# 2. ALPHA-SUTTE INDICATOR
+# 2. ALPHA-SUTTE INDICATOR (Ahmar, 2017)
 # ==============================================================================
 
 class AlphaSutte:
-    """Alpha-Sutte Indicator implementation (Ahmar, 2017)."""
+    """
+    Alpha-Sutte Indicator implementation (Ahmar, 2017).
+    Non-parametric adaptive indicator that calculates rolling incremental changes
+    across the four preceding periods (y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1}).
+    """
 
     @staticmethod
     def step_increment(y_t4: float, y_t3: float, y_t2: float, y_t1: float) -> float:
@@ -179,7 +183,7 @@ def find_order(data: Any,
     if ic_key not in valid_ics:
         raise ValueError(f"Unknown criterion ic='{ic}'. Choose from {sorted(valid_ics)}.")
 
-    # 1. Determine d via ADF test
+    # 1. Determine d via ADF unit root test
     adf_lvl = adfuller(y, autolag="AIC")[1]
     if adf_lvl < 0.05:
         d = 0
@@ -241,7 +245,7 @@ def find_order(data: Any,
 class SutteARIMAResults:
     """
     Results class returned by SutteARIMA.fit().
-    Provides direct access to all model estimates, evaluation metrics, diagnostics, and forecasts.
+    Provides direct access to all model estimates, evaluation criteria, residual diagnostics, and forecasts.
     """
 
     def __init__(self,
@@ -294,8 +298,16 @@ class SutteARIMAResults:
             self._lb_stat = self._lb_pval = np.nan
             self._lb_lag = 0
 
+        # Heteroskedasticity test (breakvar method)
+        try:
+            h_test = self.arima_results.test_heteroskedasticity(method="breakvar")
+            self._h_stat = float(h_test[0, 0])
+            self._h_pval = float(h_test[0, 1])
+        except Exception:
+            self._h_stat = self._h_pval = np.nan
+
     # --------------------------------------------------------------------------
-    # Direct Model Properties
+    # 1. Direct Model Properties & Parameters
     # --------------------------------------------------------------------------
     @property
     def order(self) -> Tuple[int, int, int]:
@@ -325,6 +337,9 @@ class SutteARIMAResults:
         names = getattr(self.arima_results, "param_names", None)
         return pd.Series(self.arima_results.bse, index=names)
 
+    # --------------------------------------------------------------------------
+    # 2. Information Criteria (Model Selection)
+    # --------------------------------------------------------------------------
     @property
     def aic(self) -> float:
         """Akaike Information Criterion."""
@@ -356,6 +371,9 @@ class SutteARIMAResults:
         """Log-Likelihood."""
         return float(self.arima_results.llf)
 
+    # --------------------------------------------------------------------------
+    # 3. Econometric Residual Diagnostics
+    # --------------------------------------------------------------------------
     @property
     def durbin_watson(self) -> float:
         """Durbin-Watson statistic for residual autocorrelation (~2.0 = no autocorrelation)."""
@@ -380,11 +398,26 @@ class SutteARIMAResults:
             "kurtosis": round(self._kurtosis, 4)
         }
 
-    # Accuracy shortcuts
+    @property
+    def heteroskedasticity(self) -> Dict[str, float]:
+        """Heteroskedasticity test on residuals (H0: homoskedastic variance)."""
+        return {
+            "statistic": round(self._h_stat, 4),
+            "p_value": round(self._h_pval, 4)
+        }
+
+    # --------------------------------------------------------------------------
+    # 4. Forecast Accuracy Metrics
+    # --------------------------------------------------------------------------
     @property
     def mape(self) -> float:
         """Mean Absolute Percentage Error (%)."""
         return self.in_sample_metrics.get("MAPE (%)", np.nan)
+
+    @property
+    def smape(self) -> float:
+        """Symmetric Mean Absolute Percentage Error (%)."""
+        return self.in_sample_metrics.get("sMAPE (%)", np.nan)
 
     @property
     def rmse(self) -> float:
@@ -392,12 +425,37 @@ class SutteARIMAResults:
         return self.in_sample_metrics.get("RMSE", np.nan)
 
     @property
+    def mse(self) -> float:
+        """Mean Squared Error."""
+        return self.in_sample_metrics.get("MSE", np.nan)
+
+    @property
     def mae(self) -> float:
         """Mean Absolute Error."""
         return self.in_sample_metrics.get("MAE", np.nan)
 
+    @property
+    def tic(self) -> float:
+        """Theil's Inequality Coefficient (0 = perfect forecast)."""
+        return self.in_sample_metrics.get("TIC", np.nan)
+
+    @property
+    def mase(self) -> Optional[float]:
+        """Mean Absolute Scaled Error (vs. naive differenced benchmark)."""
+        return self.in_sample_metrics.get("MASE", None)
+
+    @property
+    def max_ae(self) -> float:
+        """Maximum Absolute Error."""
+        return self.in_sample_metrics.get("MaxAE", np.nan)
+
+    @property
+    def mbe(self) -> float:
+        """Mean Bias Error."""
+        return self.in_sample_metrics.get("MBE", np.nan)
+
     # --------------------------------------------------------------------------
-    # Tables and Matrices
+    # 5. Tables, Matrices, and Multi-Step Forecasting
     # --------------------------------------------------------------------------
     def metrics(self, test_data: Optional[Any] = None) -> Dict[str, Any]:
         """
@@ -547,9 +605,10 @@ class SutteARIMAResults:
             "-" * 72,
             f"{'Residual Diagnostic Tests':^72}",
             "-" * 72,
-            f" Durbin-Watson       : {self.durbin_watson:<10.4f}       (residual autocorrelation ~ 2.0)",
+            f" Durbin-Watson       : {self.durbin_watson:<10.4f}       (autocorrelation: ~2.0 is ideal)",
             f" Ljung-Box (Q)       : {self._lb_stat:<10.4f}       Prob(Q)          : {self._lb_pval:<10.4f} (white noise)",
             f" Jarque-Bera (JB)    : {self._jb_stat:<10.4f}       Prob(JB)         : {self._jb_pval:<10.4f} (normality)",
+            f" Heteroskedasticity  : {self._h_stat:<10.4f}       Prob(H)          : {self._h_pval:<10.4f} (homoskedasticity)",
             f" Skew                : {self._skew:<10.4f}       Kurtosis         : {self._kurtosis:<10.4f}",
             "=" * 72,
         ]
