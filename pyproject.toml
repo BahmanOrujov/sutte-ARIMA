@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sutte-arima"
+version = "1.0.0"
+description = "SutteARIMA: Statsmodels-style hybrid Alpha-Sutte + ARIMA time series forecasting model"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Bahman Orujov", email = "orucovbehmen@gmail.com" }
+]
+dependencies = [
+    "numpy>=1.20",
+    "pandas>=1.2",
+    "scipy>=1.6",
+    "statsmodels>=0.12"
+]
