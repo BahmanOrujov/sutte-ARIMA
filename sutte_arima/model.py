@@ -15,14 +15,14 @@ from scipy import stats
 from statsmodels.stats.diagnostic import acorr_ljungbox
 from statsmodels.stats.stattools import durbin_watson, jarque_bera
 from statsmodels.tsa.arima.model import ARIMA, ARIMAResults
-from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.stattools import adfuller, kpss
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 # ==============================================================================
-# 1. COMPREHENSIVE TIME SERIES EVALUATION METRICS ENGINE
+# 1. EVALUATION METRICS ENGINE
 # ==============================================================================
 
 def calculate_evaluation_metrics(actual: Any,
@@ -39,9 +39,9 @@ def calculate_evaluation_metrics(actual: Any,
       - MASE   : Mean Absolute Scaled Error (against in-sample naive diff)
       - R2     : Coefficient of Determination (R-squared)
       - MaxAE  : Maximum Absolute Error
-      - MBE    : Mean Bias Error
-      - TIC    : Theil's Inequality Coefficient (0 = perfect fit)
-      - U2     : Theil's U2 Statistic (forecast quality vs naive)
+      - MBE    : Mean Bias Error (directional bias)
+      - TIC    : Theil's Inequality Coefficient (0 = perfect forecast, 1 = worst)
+      - U2     : Theil's U2 Statistic (forecast vs naive)
     """
     a = np.asarray(actual, dtype=float).ravel()
     p = np.asarray(predicted, dtype=float).ravel()
@@ -99,7 +99,6 @@ def calculate_evaluation_metrics(actual: Any,
     tic = float(rmse / norm_denom) if norm_denom > 0 else np.nan
 
     return {
-        "n": n,
         "MAE": round(mae, 4),
         "MSE": round(mse, 4),
         "RMSE": round(rmse, 4),
@@ -156,13 +155,14 @@ class AlphaSutte:
 
 
 # ==============================================================================
-# 3. RESULTS WRAPPER (STATSMODELS COMPLIANT)
+# 3. RESULTS CLASS (CALLABLE PROPERTIES, MATRICES & TABLES)
 # ==============================================================================
 
 class SutteARIMAResults:
     """
     Results class for SutteARIMA model estimation.
-    Designed with the familiar statsmodels interface.
+    Provides direct callable access to order, parameters, diagnostics,
+    metrics matrices, and multi-step forecasts.
     """
 
     def __init__(self,
@@ -173,32 +173,134 @@ class SutteARIMAResults:
         self.model = model
         self.arima_results = arima_res
         self.fittedvalues = fittedvalues
-        self.order = order
+        self._order = order
 
         self.endog = model.endog
         self.resid = self.endog - self.fittedvalues
 
-        # Compute in-sample metrics directly on historical data (for t >= 4)
+        # In-sample metrics on training series (for t >= 4)
         self.in_sample_metrics = calculate_evaluation_metrics(
             self.endog[4:], self.fittedvalues[4:], self.endog
         )
 
         # Residual diagnostics
         clean_resid = self.resid[4:][~np.isnan(self.resid[4:])]
-        self.durbin_watson = float(durbin_watson(clean_resid)) if len(clean_resid) > 0 else np.nan
+        self._dw = float(durbin_watson(clean_resid)) if len(clean_resid) > 0 else np.nan
         jb_res = jarque_bera(clean_resid)
-        self.jarque_bera_stat = float(jb_res[0])
-        self.jarque_bera_pval = float(jb_res[1])
+        self._jb_stat = float(jb_res[0])
+        self._jb_pval = float(jb_res[1])
+
+    # --------------------------------------------------------------------------
+    # Direct code-accessible properties
+    # --------------------------------------------------------------------------
+    @property
+    def order(self) -> Tuple[int, int, int]:
+        """Returns the ARIMA order tuple (p, d, q). Example: (0, 1, 1)."""
+        return self._order
+
+    @property
+    def params(self) -> pd.Series:
+        """Returns fitted ARIMA coefficients (AR, MA, trend/drift, variance)."""
+        return self.arima_results.params
+
+    @property
+    def pvalues(self) -> pd.Series:
+        """Returns p-values of the fitted ARIMA coefficients."""
+        return self.arima_results.pvalues
+
+    @property
+    def bse(self) -> pd.Series:
+        """Returns standard errors of the fitted ARIMA coefficients."""
+        return self.arima_results.bse
 
     @property
     def aic(self) -> float:
-        """ARIMA component AIC."""
+        """Akaike Information Criterion (AIC)."""
         return float(self.arima_results.aic)
 
     @property
     def bic(self) -> float:
-        """ARIMA component BIC."""
+        """Bayesian Information Criterion (BIC)."""
         return float(self.arima_results.bic)
+
+    @property
+    def aicc(self) -> float:
+        """Small-sample Corrected Akaike Information Criterion (AICc)."""
+        k = len(self.params)
+        n = len(self.endog)
+        if (n - k - 1) > 0:
+            return float(self.aic + (2.0 * k * (k + 1.0)) / (n - k - 1.0))
+        return self.aic
+
+    @property
+    def llf(self) -> float:
+        """Log-Likelihood value of the model."""
+        return float(self.arima_results.llf)
+
+    @property
+    def durbin_watson(self) -> float:
+        """Durbin-Watson statistic for residual autocorrelation (~2.0 is ideal)."""
+        return self._dw
+
+    @property
+    def jarque_bera(self) -> Dict[str, float]:
+        """Jarque-Bera normality test on residuals."""
+        return {"statistic": round(self._jb_stat, 4), "p_value": round(self._jb_pval, 4)}
+
+    # --------------------------------------------------------------------------
+    # Matrices & Tables
+    # --------------------------------------------------------------------------
+    def params_table(self) -> pd.DataFrame:
+        """
+        Matrix of parameter estimates, standard errors, z-statistics,
+        p-values, and 95% confidence intervals.
+        """
+        conf_int = self.arima_results.conf_int()
+        df = pd.DataFrame({
+            "coef": self.params,
+            "std err": self.bse,
+            "z": self.arima_results.tvalues if hasattr(self.arima_results, "tvalues") else self.params / self.bse,
+            "P>|z|": self.pvalues,
+            "[0.025": conf_int[:, 0] if isinstance(conf_int, np.ndarray) else conf_int.iloc[:, 0],
+            "0.975]": conf_int[:, 1] if isinstance(conf_int, np.ndarray) else conf_int.iloc[:, 1],
+        })
+        return df.round(4)
+
+    def diagnostics_table(self, lags: Optional[List[int]] = None) -> pd.DataFrame:
+        """
+        Matrix of Ljung-Box autocorrelation test across lags.
+        Tests the null hypothesis that residuals are white noise (p >= 0.05).
+        """
+        clean_resid = self.resid[4:][~np.isnan(self.resid[4:])]
+        n = len(clean_resid)
+        default_lags = [l for l in [4, 8, 12, 16] if l < n]
+        test_lags = lags or (default_lags if default_lags else [min(2, n - 1)])
+
+        lb = acorr_ljungbox(clean_resid, lags=test_lags, return_df=True)
+        lb["White_Noise (p >= 0.05)"] = lb["lb_pvalue"] >= 0.05
+        return lb.round(4)
+
+    def metrics(self, test_data: Optional[Any] = None) -> Dict[str, Any]:
+        """
+        Returns all evaluation metrics as a dictionary:
+          - If `test_data` is None: returns in-sample metrics on historical data.
+          - If `test_data` is provided: forecasts len(test_data) steps and evaluates on test data!
+        """
+        if test_data is None:
+            return self.in_sample_metrics
+
+        test = np.asarray(test_data, dtype=float).ravel()
+        fc = self.forecast(steps=len(test))["SutteARIMA"].values
+        return calculate_evaluation_metrics(test, fc, self.endog)
+
+    def metrics_table(self, test_data: Optional[Any] = None) -> pd.DataFrame:
+        """
+        Returns all evaluation metrics formatted as a pandas DataFrame matrix.
+        """
+        m = self.metrics(test_data=test_data)
+        mode = "In-Sample (Historical)" if test_data is None else "Out-of-Sample (Test Data)"
+        df = pd.DataFrame(list(m.items()), columns=["Metric", f"Value ({mode})"])
+        return df.set_index("Metric")
 
     def forecast(self, steps: int = 1, alpha: float = 0.05) -> pd.DataFrame:
         """
@@ -209,7 +311,7 @@ class SutteARIMAResults:
         steps : int, default=1
             Number of periods ahead to forecast.
         alpha : float, default=0.05
-            Significance level for prediction intervals (0.05 gives 95% CI).
+            Significance level (alpha=0.05 gives 95% Confidence Interval).
 
         Returns
         -------
@@ -223,7 +325,6 @@ class SutteARIMAResults:
         s_mean = AlphaSutte.compute_forecast(self.endog, steps=steps)
         hybrid_mean = 0.5 * (a_mean + s_mean)
 
-        # Variance scaling for prediction intervals
         clean_resid = self.resid[4:][~np.isnan(self.resid[4:])]
         hybrid_sigma = np.std(clean_resid, ddof=1) if len(clean_resid) > 1 else 1.0
         se_scale = a_se / (a_se[0] if a_se[0] > 0 else 1.0)
@@ -242,21 +343,24 @@ class SutteARIMAResults:
         df.index.name = "Horizon"
         return df
 
-    def metrics(self, test_data: Optional[Any] = None) -> Dict[str, Any]:
+    def forecast_table(self, steps: int = 1, test_data: Optional[Any] = None) -> pd.DataFrame:
         """
-        Returns full evaluation metrics dictionary:
-          - If `test_data` is None: returns In-Sample metrics on historical data.
-          - If `test_data` is provided: forecasts len(test_data) steps and evaluates Out-of-Sample metrics!
+        Detailed forecast matrix showing step-by-step components, prediction intervals,
+        and (if test_data is passed) Actual values, Absolute Error, and APE.
         """
-        if test_data is None:
-            return self.in_sample_metrics
+        h = len(test_data) if test_data is not None else steps
+        df = self.forecast(steps=h)
 
-        test = np.asarray(test_data, dtype=float).ravel()
-        fc = self.forecast(steps=len(test))["SutteARIMA"].values
-        return calculate_evaluation_metrics(test, fc, self.endog)
+        if test_data is not None:
+            t = np.asarray(test_data, dtype=float).ravel()
+            df.insert(0, "Actual", t)
+            df["Abs_Error"] = np.abs(df["Actual"] - df["SutteARIMA"])
+            df["APE (%)"] = np.abs(df["Actual"] - df["SutteARIMA"]) / np.abs(df["Actual"]) * 100.0
+
+        return df.round(4)
 
     def summary(self) -> str:
-        """Returns a clean, professional statsmodels-style summary table."""
+        """Returns a clean, statsmodels-style summary report."""
         m = self.in_sample_metrics
         order_str = str(self.order)
         lines = [
@@ -264,10 +368,11 @@ class SutteARIMAResults:
             f"{'SutteARIMA Model Estimation Results':^70}",
             "=" * 70,
             f" Dep. Variable       : y                      No. Observations : {len(self.endog)}",
-            f" Model               : SutteARIMA{order_str:<10} Date             : Available",
-            f" ARIMA AIC           : {self.aic:<10.3f}       ARIMA BIC        : {self.bic:<10.3f}",
+            f" Model               : SutteARIMA{order_str:<10} Log-Likelihood   : {self.llf:<10.3f}",
+            f" ARIMA AIC           : {self.aic:<10.3f}       ARIMA AICc       : {self.aicc:<10.3f}",
+            f" ARIMA BIC           : {self.bic:<10.3f}       Durbin-Watson    : {self.durbin_watson:<10.4f}",
             "-" * 70,
-            f"{'In-Sample Forecasting Accuracy Metrics':^70}",
+            f"{'In-Sample Forecasting Accuracy Matrix':^70}",
             "-" * 70,
             f" MAE                 : {m.get('MAE', np.nan):<10.4f}       MSE              : {m.get('MSE', np.nan):<10.4f}",
             f" RMSE                : {m.get('RMSE', np.nan):<10.4f}       R-squared (R2)   : {m.get('R2', np.nan):<10.4f}",
@@ -275,11 +380,14 @@ class SutteARIMAResults:
             f" MdAPE (%)           : {m.get('MdAPE (%)', np.nan):<10.4f}%      Theil's IC (TIC) : {m.get('TIC', np.nan):<10.4f}",
             f" Max Error (MaxAE)   : {m.get('MaxAE', np.nan):<10.4f}       Mean Bias (MBE)  : {m.get('MBE', np.nan):<10.4f}",
             "-" * 70,
-            f"{'Residual Diagnostic Checks':^70}",
+            f"{'ARIMA Parameter Estimates':^70}",
             "-" * 70,
-            f" Durbin-Watson       : {self.durbin_watson:<10.4f}       Jarque-Bera (p)  : {self.jarque_bera_pval:<10.4f}",
-            "=" * 70,
         ]
+
+        # Add parameters table
+        pt = self.params_table()
+        lines.append(pt.to_string())
+        lines.append("=" * 70)
         return "\n".join(lines)
 
     def __repr__(self) -> str:
@@ -287,7 +395,7 @@ class SutteARIMAResults:
 
 
 # ==============================================================================
-# 4. MAIN STATSMODELS-STYLE SUTTE-ARIMA CLASS
+# 4. SUTTE-ARIMA MAIN MODEL CLASS
 # ==============================================================================
 
 class SutteARIMA:
@@ -298,18 +406,21 @@ class SutteARIMA:
     ----------
     endog : array-like
         The observed time series data (y).
-    order : Tuple[int, int, int], optional
-        The (p, d, q) order of the ARIMA model. If None (default), the order
-        is automatically selected by minimizing AICc over a grid search.
+    order : Tuple[int, int, int]
+        The (p, d, q) order for ARIMA. You must provide `order=(p, d, q)`.
+        Example: `order=(0, 1, 1)` or `order=(1, 1, 0)`.
+        (To inspect or select orders automatically, call `SutteARIMA.auto_select_order(data)`).
 
     Example
     -------
     >>> from sutte_arima import SutteARIMA
     >>> data = [10.2, 10.8, 11.5, 11.9, 12.4, 13.1, 13.8, 14.5, 15.0, 15.8]
-    >>> model = SutteARIMA(data)
+    >>> model = SutteARIMA(data, order=(0, 1, 1))
     >>> res = model.fit()
-    >>> print(res.summary())
-    >>> forecasts = res.forecast(steps=5)
+    >>> print(res.order)         # (0, 1, 1)
+    >>> print(res.params)        # coefficients
+    >>> print(res.metrics())     # evaluation metrics matrix
+    >>> print(res.forecast(5))   # 5-step forecast
     """
 
     def __init__(self,
@@ -318,53 +429,35 @@ class SutteARIMA:
         self.endog = np.asarray(endog, dtype=float).ravel()
         if len(self.endog) < 8:
             raise ValueError(f"SutteARIMA requires at least 8 observations, got {len(self.endog)}.")
-        self.order = order
 
-    def _auto_order(self, max_p: int = 3, max_q: int = 3) -> Tuple[int, int, int]:
-        """Automatically selects (p, d, q) via ADF test and AICc grid search."""
-        y = self.endog
-        # Stationarity check for d
-        stat, pval, _, _, _, _ = adfuller(y, autolag="AIC")
-        d = 0 if pval < 0.05 else (1 if adfuller(np.diff(y), autolag="AIC")[1] < 0.05 else 2)
+        if order is None:
+            raise ValueError(
+                "You must specify the ARIMA order=(p, d, q), e.g. SutteARIMA(data, order=(0, 1, 1)).\n"
+                "If you want to view the automatic order selection table and find the optimal order, "
+                "call: order, table = SutteARIMA.auto_select_order(data)"
+            )
 
-        best_score = float("inf")
-        best_order = (1, d, 0)
-        n = len(y)
+        if not (isinstance(order, (tuple, list)) and len(order) == 3):
+            raise ValueError(f"order must be a tuple of 3 integers (p, d, q), got {order}.")
 
-        for p, q in product(range(max_p + 1), range(max_q + 1)):
-            try:
-                mod = ARIMA(y, order=(p, d, q))
-                fit = mod.fit()
-                k = p + q + 1
-                aicc = fit.aic + (2.0 * k * (k + 1.0)) / (n - k - 1.0) if (n - k - 1) > 0 else fit.aic
-                if aicc < best_score:
-                    best_score = aicc
-                    best_order = (p, d, q)
-            except Exception:
-                continue
-
-        return best_order
+        self.order = (int(order[0]), int(order[1]), int(order[2]))
 
     def fit(self) -> SutteARIMAResults:
         """
-        Fits the SutteARIMA model.
+        Fits the SutteARIMA model with the specified order.
 
         Returns
         -------
         SutteARIMAResults
-            Results object with .summary(), .forecast(), .metrics(), .fittedvalues, .resid.
+            Results object with callable attributes (.order, .params, .pvalues,
+            .aic, .bic, .metrics(), .metrics_table(), .forecast(), .summary()).
         """
-        chosen_order = self.order or self._auto_order()
-
-        # Fit ARIMA
-        arima_model = ARIMA(self.endog, order=chosen_order)
+        arima_model = ARIMA(self.endog, order=self.order)
         arima_res = arima_model.fit()
 
-        # In-sample Alpha-Sutte
         sutte_fitted = AlphaSutte.compute_fitted(self.endog)
         arima_fitted = np.asarray(arima_res.fittedvalues, dtype=float)
 
-        # Hybrid in-sample fitted values
         hybrid_fitted = np.full(len(self.endog), np.nan)
         for i in range(len(self.endog)):
             if np.isnan(sutte_fitted[i]):
@@ -376,5 +469,79 @@ class SutteARIMA:
             model=self,
             arima_res=arima_res,
             fittedvalues=hybrid_fitted,
-            order=chosen_order
+            order=self.order
         )
+
+    # --------------------------------------------------------------------------
+    # Standalone Order Exploration & Selection Tool
+    # --------------------------------------------------------------------------
+    @classmethod
+    def auto_select_order(cls,
+                          data: Any,
+                          max_p: int = 3,
+                          max_q: int = 3,
+                          max_d: int = 2,
+                          criterion: str = "aicc") -> Tuple[Tuple[int, int, int], pd.DataFrame]:
+        """
+        Explores all ARIMA(p, d, q) candidate specifications and returns
+        the best order along with the complete Information Criteria Comparison Matrix.
+
+        Parameters
+        ----------
+        data : array-like
+            The time series data to analyze.
+        max_p : int, default=3
+            Maximum AR order to test.
+        max_q : int, default=3
+            Maximum MA order to test.
+        max_d : int, default=2
+            Maximum differencing order to test.
+        criterion : str, default='aicc'
+            Sorting criterion: 'aicc', 'aic', or 'bic'.
+
+        Returns
+        -------
+        best_order : Tuple[int, int, int]
+            The optimal (p, d, q) order minimizing the criterion.
+        comparison_matrix : pd.DataFrame
+            Matrix of all tested candidate orders with p, d, q, AIC, AICc, BIC, LogLik.
+        """
+        y = np.asarray(data, dtype=float).ravel()
+        n = len(y)
+
+        # 1. Determine d via ADF test
+        stat, pval, _, _, _, _ = adfuller(y, autolag="AIC")
+        d = 0 if pval < 0.05 else (1 if adfuller(np.diff(y), autolag="AIC")[1] < 0.05 else 2)
+        d_candidates = [d]
+        if d == 0 and max_d >= 1:
+            d_candidates.append(1)
+
+        records = []
+        for curr_d in d_candidates:
+            for p, q in product(range(max_p + 1), range(max_q + 1)):
+                try:
+                    mod = ARIMA(y, order=(p, curr_d, q))
+                    res = mod.fit()
+                    k = p + q + 1
+                    aic = float(res.aic)
+                    bic = float(res.bic)
+                    aicc = float(aic + (2.0 * k * (k + 1.0)) / (n - k - 1.0)) if (n - k - 1) > 0 else aic
+
+                    records.append({
+                        "order": f"({p}, {curr_d}, {q})",
+                        "p": p, "d": curr_d, "q": q,
+                        "AIC": round(aic, 3),
+                        "AICc": round(aicc, 3),
+                        "BIC": round(bic, 3),
+                        "LogLik": round(float(res.llf), 3),
+                    })
+                except Exception:
+                    continue
+
+        df = pd.DataFrame(records)
+        sort_col = "AICc" if criterion == "aicc" else ("AIC" if criterion == "aic" else "BIC")
+        df = df.sort_values(sort_col).reset_index(drop=True)
+
+        best_row = df.iloc[0]
+        best_order = (int(best_row["p"]), int(best_row["d"]), int(best_row["q"]))
+        return best_order, df
