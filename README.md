@@ -48,16 +48,16 @@ Traditional ARIMA models rely entirely on linear lag polynomials and differencin
 Developed by Dr. Ansari Saleh Ahmar (2017), the $\alpha$-Sutte indicator calculates dynamic relative changes across the four most recent historical periods $`(y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1})`$:
 
 1. **Successive Differences**:
-   $$\Delta x = y_{t-3} - y_{t-4}, \quad \Delta y = y_{t-2} - y_{t-3}, \quad \Delta z = y_{t-1} - y_{t-2}$$
+   $`\Delta x = y_{t-3} - y_{t-4}, \quad \Delta y = y_{t-2} - y_{t-3}, \quad \Delta z = y_{t-1} - y_{t-2}`$
 
 2. **Sub-period Midpoints**:
-   $$m_x = \frac{y_{t-3} + y_{t-4}}{2}, \quad m_y = \frac{y_{t-2} + y_{t-3}}{2}, \quad m_z = \frac{y_{t-1} + y_{t-2}}{2}$$
+   $`m_x = \frac{y_{t-3} + y_{t-4}}{2}, \quad m_y = \frac{y_{t-2} + y_{t-3}}{2}, \quad m_z = \frac{y_{t-1} + y_{t-2}}{2}`$
 
 3. **Dynamic Step Increments**:
-   $$\tau_x = y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right), \quad \tau_y = y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right), \quad \tau_z = y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right)$$
+   $`\tau_x = y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right), \quad \tau_y = y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right), \quad \tau_z = y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right)`$
 
-4. **Aggregate Change ($`\Delta_{t}`$) and Prediction**:
-   $$\Delta_{t} = \frac{\tau_x + \tau_y + \tau_z}{3}, \quad \hat{Z}_{t}^{\alpha\text{-Sutte}} = y_{t-1} + \Delta_{t}$$
+4. **Aggregate Change ($`\Delta_t`$) and Prediction**:
+   $`\Delta_t = \frac{\tau_x + \tau_y + \tau_z}{3}, \quad \hat{Z}_t^{\alpha\text{-Sutte}} = y_{t-1} + \Delta_t`$
 
 ### 2. The Box-Jenkins ARIMA Model
 
