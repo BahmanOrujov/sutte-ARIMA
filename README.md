@@ -3,7 +3,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**SutteARIMA** is a specialized time series forecasting library that combines the non-parametric **$\alpha$-Sutte Indicator** (Ahmar, 2017) with the classical parametric **Box-Jenkins ARIMA/SARIMAX** model (Ahmar et al., 2019).
+**SutteARIMA** is a specialized time series forecasting library that combines the non-parametric **α-Sutte Indicator** (Ahmar, 2017) with the classical parametric **Box-Jenkins ARIMA/SARIMAX** model (Ahmar et al., 2019).
 
 Designed with a clean, **statsmodels-compliant API** for econometricians, statisticians, and quantitative analysts—delivering maximum statistical rigor with minimal code.
 
@@ -12,7 +12,7 @@ Designed with a clean, **statsmodels-compliant API** for econometricians, statis
 ## Table of Contents
 1. [Installation](#installation)
 2. [Model Overview & Mathematical Background](#model-overview--mathematical-background)
-   - [The $\alpha$-Sutte Indicator](#1-the-alpha-sutte-indicator)
+   - [The α-Sutte Indicator](#1-the-α-sutte-indicator)
    - [The Box-Jenkins ARIMA Model](#2-the-box-jenkins-arima-model)
    - [The Hybrid SutteARIMA Formulation](#3-the-hybrid-suttearima-formulation)
 3. [Econometric Order Selection Methodology](#econometric-order-selection-methodology)
@@ -41,11 +41,11 @@ pip install --upgrade git+https://github.com/BahmanOrujov/sutte-ARIMA.git
 
 ## Model Overview & Mathematical Background
 
-Traditional ARIMA models rely entirely on linear lag polynomials and differencing, which can struggle with rapid regime shifts and non-linear short-run momentum. The **SutteARIMA** framework overcomes this by combining parametric Box-Jenkins dynamics with the adaptive, non-parametric **$\alpha$-Sutte** indicator.
+Traditional ARIMA models rely entirely on linear lag polynomials and differencing, which can struggle with rapid regime shifts and non-linear short-run momentum. The **SutteARIMA** framework overcomes this by combining parametric Box-Jenkins dynamics with the adaptive, non-parametric **α-Sutte** indicator.
 
-### 1. The $\alpha$-Sutte Indicator
+### 1. The α-Sutte Indicator
 
-Developed by Dr. Ansari Saleh Ahmar (2017), the $\alpha$-Sutte indicator calculates dynamic relative changes across the four most recent historical periods $`(y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1})`$:
+Developed by Dr. Ansari Saleh Ahmar (2017), the α-Sutte indicator calculates dynamic relative changes across the four most recent historical periods $`(y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1})`$:
 
 1. **Successive Differences**:
    $`\Delta x = y_{t-3} - y_{t-4}, \quad \Delta y = y_{t-2} - y_{t-3}, \quad \Delta z = y_{t-1} - y_{t-2}`$
