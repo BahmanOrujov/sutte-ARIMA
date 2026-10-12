@@ -69,7 +69,7 @@ Introduced by Dr. Ansari Saleh Ahmar (2017), the **α-Sutte indicator** is a non
 
 $$y_{t-4}, \quad y_{t-3}, \quad y_{t-2}, \quad y_{t-1}$$
 
-The forecast for period $`t`$, denoted as $`\hat{y}_t^{\alpha\text{-Sutte}}`$, is derived through the following four steps:
+The forecast for period $`t`$, denoted as $`\hat{y}_{t, \text{Sutte}}`$, is derived through the following four steps:
 
 #### Step 1: Successive Historical Differences ($`\Delta`$)
 
@@ -83,11 +83,11 @@ $$m_x = \frac{y_{t-3} + y_{t-4}}{2}, \quad m_y = \frac{y_{t-2} + y_{t-3}}{2}, \q
 
 To guarantee numerical stability when sub-period midpoints approach zero, each step increment applies a threshold guard ($`|m| > 10^{-12}`$):
 
-$$\tau_x = \begin{cases} y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right) = \frac{2 \cdot y_{t-3}(y_{t-3} - y_{t-4})}{y_{t-3} + y_{t-4}}, & \text{if } |m_x| > 10^{-12} \\ \Delta x, & \text{otherwise} \end{cases}$$
+$$\tau_x = \begin{cases} y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right) = \frac{2 y_{t-3}(y_{t-3} - y_{t-4})}{y_{t-3} + y_{t-4}}, & \text{if } |m_x| > 10^{-12} \\\\ \Delta x, & \text{otherwise} \end{cases}$$
 
-$$\tau_y = \begin{cases} y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right) = \frac{2 \cdot y_{t-2}(y_{t-2} - y_{t-3})}{y_{t-2} + y_{t-3}}, & \text{if } |m_y| > 10^{-12} \\ \Delta y, & \text{otherwise} \end{cases}$$
+$$\tau_y = \begin{cases} y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right) = \frac{2 y_{t-2}(y_{t-2} - y_{t-3})}{y_{t-2} + y_{t-3}}, & \text{if } |m_y| > 10^{-12} \\\\ \Delta y, & \text{otherwise} \end{cases}$$
 
-$$\tau_z = \begin{cases} y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right) = \frac{2 \cdot y_{t-1}(y_{t-1} - y_{t-2})}{y_{t-1} + y_{t-2}}, & \text{if } |m_z| > 10^{-12} \\ \Delta z, & \text{otherwise} \end{cases}$$
+$$\tau_z = \begin{cases} y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right) = \frac{2 y_{t-1}(y_{t-1} - y_{t-2})}{y_{t-1} + y_{t-2}}, & \text{if } |m_z| > 10^{-12} \\\\ \Delta z, & \text{otherwise} \end{cases}$$
 
 #### Step 4: Aggregate Step Increment ($`\Delta_t`$) and Point Forecast
 
@@ -97,7 +97,7 @@ $$\Delta_t = \frac{\tau_x + \tau_y + \tau_z}{3}$$
 
 The resulting non-parametric projection for time $`t`$ is:
 
-$$\hat{y}_t^{\alpha\text{-Sutte}} = y_{t-1} + \Delta_t$$
+$$\hat{y}_{t, \text{Sutte}} = y_{t-1} + \Delta_t$$
 
 ---
 
@@ -129,12 +129,12 @@ Where:
 
 The hybrid SutteARIMA model combines the individual parametric and non-parametric predictions through an equal-weighted ensemble:
 
-$$\hat{y}_t^{\text{SutteARIMA}} = \frac{\hat{y}_t^{\text{ARIMA}} + \hat{y}_t^{\alpha\text{-Sutte}}}{2}$$
+$$\hat{y}_{t, \text{SutteARIMA}} = \frac{\hat{y}_{t, \text{ARIMA}} + \hat{y}_{t, \text{Sutte}}}{2}$$
 
 #### Boundary Condition for In-Sample Fitting ($`t < 4`$):
 Because the α-Sutte indicator strictly requires four lagged historical observations $`(y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1})`$, α-Sutte step increments cannot be computed for in-sample indices $`t \in \{0, 1, 2, 3\}`$. The library applies the formal boundary condition:
 
-$$\hat{y}_t^{\text{SutteARIMA}} = \begin{cases} \hat{y}_t^{\text{ARIMA}}, & \text{for } t < 4 \\ \frac{1}{2}\left(\hat{y}_t^{\text{ARIMA}} + \hat{y}_t^{\alpha\text{-Sutte}}\right), & \text{for } t \ge 4 \end{cases}$$
+$$\hat{y}_{t, \text{SutteARIMA}} = \begin{cases} \hat{y}_{t, \text{ARIMA}}, & \text{for } t < 4 \\\\ \frac{1}{2}\left(\hat{y}_{t, \text{ARIMA}} + \hat{y}_{t, \text{Sutte}}\right), & \text{for } t \ge 4 \end{cases}$$
 
 ---
 
@@ -195,23 +195,23 @@ For an $`h`$-step ahead forecast horizon ($`h = 1, 2, \dots, H`$):
 
 #### 1. Point Forecast Synthesis
 - **ARIMA Component:** Uses state-space Kalman filtering to compute conditional expectations and analytical standard errors:
-  $$\hat{y}_{T+h}^{\text{ARIMA}} = \mathbb{E}\left[y_{T+h} \mid \mathcal{F}_T\right]$$
+  $$\hat{y}_{T+h, \text{ARIMA}} = \mathbb{E}\left[y_{T+h} \mid \mathcal{F}_T\right]$$
 - **α-Sutte Component:** Recursively projects forward by rolling the four-point evaluation window:
-  $$\hat{y}_{T+1}^{\alpha} = y_T + \Delta(y_{T-3}, y_{T-2}, y_{T-1}, y_T)$$
-  $$\hat{y}_{T+2}^{\alpha} = \hat{y}_{T+1}^{\alpha} + \Delta(y_{T-2}, y_{T-1}, y_T, \hat{y}_{T+1}^{\alpha})$$
-  $$\hat{y}_{T+h}^{\alpha} = \hat{y}_{T+h-1}^{\alpha} + \Delta(\hat{y}_{T+h-4}^{\alpha}, \hat{y}_{T+h-3}^{\alpha}, \hat{y}_{T+h-2}^{\alpha}, \hat{y}_{T+h-1}^{\alpha})$$
+  $$\hat{y}_{T+1, \text{Sutte}} = y_T + \Delta(y_{T-3}, y_{T-2}, y_{T-1}, y_T)$$
+  $$\hat{y}_{T+2, \text{Sutte}} = \hat{y}_{T+1, \text{Sutte}} + \Delta(y_{T-2}, y_{T-1}, y_T, \hat{y}_{T+1, \text{Sutte}})$$
+  $$\hat{y}_{T+h, \text{Sutte}} = \hat{y}_{T+h-1, \text{Sutte}} + \Delta(\hat{y}_{T+h-4, \text{Sutte}}, \hat{y}_{T+h-3, \text{Sutte}}, \hat{y}_{T+h-2, \text{Sutte}}, \hat{y}_{T+h-1, \text{Sutte}})$$
 - **Hybrid Point Forecast:**
-  $$\hat{y}_{T+h}^{\text{hybrid}} = \frac{\hat{y}_{T+h}^{\text{ARIMA}} + \hat{y}_{T+h}^{\alpha}}{2}$$
+  $$\hat{y}_{T+h, \text{hybrid}} = \frac{\hat{y}_{T+h, \text{ARIMA}} + \hat{y}_{T+h, \text{Sutte}}}{2}$$
 
 #### 2. Hybrid Standard Error Scaling
 The hybrid residual standard deviation $`\sigma_{\text{resid}} = \sqrt{\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)^2}`$ is scaled by the horizon expansion ratio of the ARIMA model:
 
-$$\text{SE}_{T+h}^{\text{hybrid}} = \sigma_{\text{resid}} \times \left(\frac{\text{SE}_{T+h}^{\text{ARIMA}}}{\text{SE}_{T+1}^{\text{ARIMA}}}\right)$$
+$$\text{SE}_{T+h, \text{hybrid}} = \sigma_{\text{resid}} \times \left(\frac{\text{SE}_{T+h, \text{ARIMA}}}{\text{SE}_{T+1, \text{ARIMA}}}\right)$$
 
 #### 3. $(1 - \alpha_{\text{ci}})\times 100\%$ Prediction Intervals
 For a significance level $`\alpha_{\text{ci}}`$ (e.g., $`\alpha_{\text{ci}} = 0.05 \implies 95\%`$ confidence interval), the critical value $`z = \Phi^{-1}(1 - \alpha_{\text{ci}}/2)`$ is derived from the standard normal quantile function ($`z \approx 1.960`$ for 95%):
 
-$$\left[\hat{y}_{T+h}^{\text{hybrid}} - z \cdot \text{SE}_{T+h}^{\text{hybrid}}, \quad \hat{y}_{T+h}^{\text{hybrid}} + z \cdot \text{SE}_{T+h}^{\text{hybrid}}\right]$$
+$$\left[\hat{y}_{T+h, \text{hybrid}} - z \cdot \text{SE}_{T+h, \text{hybrid}}, \quad \hat{y}_{T+h, \text{hybrid}} + z \cdot \text{SE}_{T+h, \text{hybrid}}\right]$$
 
 ---
 
