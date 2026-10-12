@@ -56,31 +56,30 @@ Developed by Dr. Ansari Saleh Ahmar (2017), the $\alpha$-Sutte indicator calcula
 3. **Dynamic Step Increments**:
    $$\tau_x = y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right), \quad \tau_y = y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right), \quad \tau_z = y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right)$$
 
-4. **Aggregate Change ($\Delta_t$) and Prediction**:
-
-   $$\Delta_t = \frac{\tau_x + \tau_y + \tau_z}{3}, \quad \hat{Z}_t^{\alpha\text{-Sutte}} = y_{t-1} + \Delta_t$$
+4. **Aggregate Change ($`\Delta_{t}`$) and Prediction**:
+   $$\Delta_{t} = \frac{\tau_x + \tau_y + \tau_z}{3}, \quad \hat{Z}_{t}^{\alpha\text{-Sutte}} = y_{t-1} + \Delta_{t}$$
 
 ### 2. The Box-Jenkins ARIMA Model
 
-The univariate Box-Jenkins $\text{ARIMA}(p, d, q)$ specification is expressed in backshift operator notation ($`B^k y_t = y_{t-k}`$) as:
+The univariate Box-Jenkins $\text{ARIMA}(p, d, q)$ specification is expressed in backshift operator notation ($`B^k y_{t} = y_{t-k}`$) as:
 
-$$\Phi_p(B) (1 - B)^d y_t = \Theta_q(B) \varepsilon_t$$
+$$\Phi_{p}(B) (1 - B)^d y_{t} = \Theta_{q}(B) \varepsilon_{t}$$
 
 Where:
-- $\Phi_p(B) = 1 - \phi_1 B - \phi_2 B^2 - \dots - \phi_p B^p$ is the Autoregressive (AR) polynomial.
+- $\Phi_{p}(B) = 1 - \phi_1 B - \phi_2 B^2 - \dots - \phi_{p} B^p$ is the Autoregressive (AR) polynomial.
 - $(1 - B)^d$ is the differencing operator of order $d$.
-- $\Theta_q(B) = 1 + \theta_1 B + \theta_2 B^2 + \dots + \theta_q B^q$ is the Moving Average (MA) polynomial.
-- $\varepsilon_t \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2)$ is Gaussian white noise.
+- $\Theta_{q}(B) = 1 + \theta_1 B + \theta_2 B^2 + \dots + \theta_{q} B^q$ is the Moving Average (MA) polynomial.
+- $\varepsilon_{t} \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2)$ is Gaussian white noise.
 
 When seasonality of period $s$ is present, the multiplicative seasonal extension $\text{SARIMA}(p,d,q)\times(P,D,Q,s)$ is:
 
-$$\Phi_p(B)\tilde{\Phi}_P(B^s)(1 - B)^d(1 - B^s)^D y_t = \Theta_q(B)\tilde{\Theta}_Q(B^s)\varepsilon_t$$
+$$\Phi_{p}(B)\tilde{\Phi}_{P}(B^s)(1 - B)^d(1 - B^s)^D y_{t} = \Theta_{q}(B)\tilde{\Theta}_{Q}(B^s)\varepsilon_{t}$$
 
 ### 3. The Hybrid SutteARIMA Formulation
 
 The composite forecast combines the two individual models via equal weighting:
 
-$$\hat{Z}_t^{\text{SutteARIMA}} = \frac{\hat{Z}_t^{\text{ARIMA}} + \hat{Z}_t^{\alpha\text{-Sutte}}}{2}$$
+$$\hat{Z}_{t}^{\text{SutteARIMA}} = \frac{\hat{Z}_{t}^{\text{ARIMA}} + \hat{Z}_{t}^{\alpha\text{-Sutte}}}{2}$$
 
 ---
 
