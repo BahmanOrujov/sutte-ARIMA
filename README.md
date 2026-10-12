@@ -43,18 +43,18 @@ flowchart TD
         ADF --> Grid["Grid Search: p in [0, max_p], q in [0, max_q]"]
         Grid --> AICc["Small-Sample Criterion: Min(AICc)"]
         AICc --> MLE["Maximum Likelihood Estimation"]
-        MLE --> ARIMA_Fitted["ARIMA Projections: y_hat_t(ARIMA)"]
+        MLE --> ARIMA_Fitted["ARIMA Projections: ŷ_ARIMA"]
     end
 
     subgraph NonParametric ["2. Non-Parametric Momentum (Alpha-Sutte)"]
-        AS --> Window["Rolling 4-Period Historical Window: y_(t-4), y_(t-3), y_(t-2), y_(t-1)"]
+        AS --> Window["Rolling 4-Period Historical Window: y_t-4, y_t-3, y_t-2, y_t-1"]
         Window --> Diffs["Successive Differences: Δx, Δy, Δz"]
         Diffs --> Midpoints["Sub-Period Midpoints: m_x, m_y, m_z"]
         Midpoints --> Increments["Dynamic Step Increments: τ_x, τ_y, τ_z"]
-        Increments --> Sutte_Fitted["Alpha-Sutte Projections: y_hat_t(Alpha-Sutte)"]
+        Increments --> Sutte_Fitted["Alpha-Sutte Projections: ŷ_Sutte"]
     end
 
-    ARIMA_Fitted & Sutte_Fitted --> Ensemble["3. Equal-Weighted Ensemble: (y_hat_t(ARIMA) + y_hat_t(Alpha-Sutte)) / 2"]
+    ARIMA_Fitted & Sutte_Fitted --> Ensemble["3. Equal-Weighted Ensemble: (ŷ_ARIMA + ŷ_Sutte) / 2"]
     Ensemble --> Results["SutteARIMAResults Object"]
     Results --> Diag["Diagnostic Battery: DW, Ljung-Box, Jarque-Bera, Heteroskedasticity"]
     Results --> Metrics["Accuracy Matrix: MAPE, sMAPE, RMSE, MAE, TIC, MASE"]
@@ -194,14 +194,22 @@ Estimated coefficients are tested for individual significance ($`p < 0.05`$), an
 For an $`h`$-step ahead forecast horizon ($`h = 1, 2, \dots, H`$):
 
 #### 1. Point Forecast Synthesis
-- **ARIMA Component:** Uses state-space Kalman filtering to compute conditional expectations and analytical standard errors:
-  $$\hat{y}_{T+h, \text{ARIMA}} = \mathbb{E}\left[y_{T+h} \mid \mathcal{F}_T\right]$$
-- **α-Sutte Component:** Recursively projects forward by rolling the four-point evaluation window:
-  $$\hat{y}_{T+1, \text{Sutte}} = y_T + \Delta(y_{T-3}, y_{T-2}, y_{T-1}, y_T)$$
-  $$\hat{y}_{T+2, \text{Sutte}} = \hat{y}_{T+1, \text{Sutte}} + \Delta(y_{T-2}, y_{T-1}, y_T, \hat{y}_{T+1, \text{Sutte}})$$
-  $$\hat{y}_{T+h, \text{Sutte}} = \hat{y}_{T+h-1, \text{Sutte}} + \Delta(\hat{y}_{T+h-4, \text{Sutte}}, \hat{y}_{T+h-3, \text{Sutte}}, \hat{y}_{T+h-2, \text{Sutte}}, \hat{y}_{T+h-1, \text{Sutte}})$$
-- **Hybrid Point Forecast:**
-  $$\hat{y}_{T+h, \text{hybrid}} = \frac{\hat{y}_{T+h, \text{ARIMA}} + \hat{y}_{T+h, \text{Sutte}}}{2}$$
+
+**ARIMA Component:** Uses state-space Kalman filtering to compute conditional expectations and analytical standard errors:
+
+$$\hat{y}_{T+h, \text{ARIMA}} = \mathbb{E}\left[y_{T+h} \mid \mathcal{F}_T\right]$$
+
+**α-Sutte Component:** Recursively projects forward by rolling the four-point evaluation window:
+
+$$\hat{y}_{T+1, \text{Sutte}} = y_T + \Delta(y_{T-3}, y_{T-2}, y_{T-1}, y_T)$$
+
+$$\hat{y}_{T+2, \text{Sutte}} = \hat{y}_{T+1, \text{Sutte}} + \Delta(y_{T-2}, y_{T-1}, y_T, \hat{y}_{T+1, \text{Sutte}})$$
+
+$$\hat{y}_{T+h, \text{Sutte}} = \hat{y}_{T+h-1, \text{Sutte}} + \Delta(\hat{y}_{T+h-4, \text{Sutte}}, \hat{y}_{T+h-3, \text{Sutte}}, \hat{y}_{T+h-2, \text{Sutte}}, \hat{y}_{T+h-1, \text{Sutte}})$$
+
+**Hybrid Point Forecast:**
+
+$$\hat{y}_{T+h, \text{hybrid}} = \frac{\hat{y}_{T+h, \text{ARIMA}} + \hat{y}_{T+h, \text{Sutte}}}{2}$$
 
 #### 2. Hybrid Standard Error Scaling
 The hybrid residual standard deviation $`\sigma_{\text{resid}} = \sqrt{\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)^2}`$ is scaled by the horizon expansion ratio of the ARIMA model:
