@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sutte-arima"
-version = "1.0.0"
-description = "SutteARIMA: Statsmodels-style hybrid Alpha-Sutte + ARIMA time series forecasting model"
+version = "2.0.0"
+description = "SutteARIMA: statsmodels-style hybrid alpha-Sutte + ARIMA forecasting with leakage-free evaluation"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [
@@ -17,3 +17,7 @@ dependencies = [
     "scipy>=1.6",
     "statsmodels>=0.12"
 ]
+
+[project.optional-dependencies]
+plot = ["matplotlib"]
+test = ["pytest"]
