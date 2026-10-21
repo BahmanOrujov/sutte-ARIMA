@@ -91,12 +91,12 @@ with $`z_t = y_t`$ (default) or $`z_t = \ln y_t`$ (`transform="log"`), the backs
 
 ```math
 \ln L = -\frac12\sum_{t=1}^{n}\Big[\ln(2\pi)+\ln F_t+\frac{v_t^2}{F_t}\Big],\qquad
-v_t = z_t-\operatorname{E}\big[z_t\mid z_1,\dots,z_{t-1}\big],\qquad F_t = \operatorname{Var}(v_t),
+v_t = z_t-\mathrm{E}\big[z_t\mid z_1,\dots,z_{t-1}\big],\qquad F_t = \mathrm{Var}(v_t),
 ```
 
-which is maximised over all parameters (AR, MA, seasonal, trend and exog coefficients and $`\sigma^2`$). Non-stationary components are initialised diffusely, so the first $`d+Ds`$ one-step predictions carry no information. The one-step predictions $`\operatorname{E}[z_t\mid z_{1:t-1}]`$ are the ARIMA fitted values; running the filter with fixed parameters through new observations gives one-step forecasts that use only past data (§3).
+which is maximised over all parameters (AR, MA, seasonal, trend and exog coefficients and $`\sigma^2`$). Non-stationary components are initialised diffusely, so the first $`d+Ds`$ one-step predictions carry no information. The one-step predictions $`\mathrm{E}[z_t\mid z_{1:t-1}]`$ are the ARIMA fitted values; running the filter with fixed parameters through new observations gives one-step forecasts that use only past data (§3).
 
-**Forecasts and their error variance.** The $`h`$-step forecast $`\hat z_{T+h\mid T} = \operatorname{E}[z_{T+h}\mid z_{1:T}]`$ is obtained by iterating the model equation with future shocks set to zero. Its error is a finite moving average of the future shocks,
+**Forecasts and their error variance.** The $`h`$-step forecast $`\hat z_{T+h\mid T} = \mathrm{E}[z_{T+h}\mid z_{1:T}]`$ is obtained by iterating the model equation with future shocks set to zero. Its error is a finite moving average of the future shocks,
 
 ```math
 z_{T+h}-\hat z_{T+h\mid T} = \sum_{j=0}^{h-1}\psi_j\,\varepsilon_{T+h-j},\qquad
@@ -109,7 +109,7 @@ For a random walk, ARIMA(0,1,0), $`\psi_j = 1`$ and $`\sigma_h^2 = h\sigma^2`$; 
 **Trend.** statsmodels writes the trend in levels, $`z_t = \text{trend}_t + u_t`$ with $`u_t`$ integrated, so a constant is not identified when $`d+D>0`$: differencing removes it. `trend="drift"` adds the trend term of power $`d+D`$, which becomes a constant after differencing:
 
 ```math
-d = 1:\qquad z_t = c\,t+u_t,\quad (1-B)\,u_t\sim\text{ARMA}\qquad\Longrightarrow\qquad \Delta z_t = c+\Delta u_t,\qquad \operatorname{E}[\Delta z_t] = c .
+d = 1:\qquad z_t = c\,t+u_t,\quad (1-B)\,u_t\sim\text{ARMA}\qquad\Longrightarrow\qquad \Delta z_t = c+\Delta u_t,\qquad \mathrm{E}[\Delta z_t] = c .
 ```
 
 With `transform="log"`, $`c`$ is the mean log return per period, and for long horizons the point forecast grows linearly, $`\hat z_{T+h\mid T}\approx z_T + h\,c`$.
@@ -154,7 +154,7 @@ $`w = 0.5`$ is the original SutteARIMA. With `weight="optimal"` the weight minim
 w^* = \frac{\sum_t e^S_t\,(e^S_t-e^A_t)}{\sum_t (e^A_t-e^S_t)^2},\quad\text{clipped to } [0,1].
 ```
 
-$`S(w)`$ is a convex parabola, so the clipped value is the minimiser over $`[0,1]`$. In population terms, with zero-mean errors, $`\sigma_A^2 = \operatorname{Var}(e^A_t)`$, $`\sigma_S^2 = \operatorname{Var}(e^S_t)`$ and $`\sigma_{AS} = \operatorname{Cov}(e^A_t,e^S_t)`$,
+$`S(w)`$ is a convex parabola, so the clipped value is the minimiser over $`[0,1]`$. In population terms, with zero-mean errors, $`\sigma_A^2 = \mathrm{Var}(e^A_t)`$, $`\sigma_S^2 = \mathrm{Var}(e^S_t)`$ and $`\sigma_{AS} = \mathrm{Cov}(e^A_t,e^S_t)`$,
 
 ```math
 w^* = \frac{\sigma_S^2-\sigma_{AS}}{\sigma_A^2+\sigma_S^2-2\sigma_{AS}},\qquad
@@ -235,7 +235,7 @@ The hybrid is not a likelihood-based model, so its residuals need not be white n
 
 **Theil's U2.** $`U_2 = \text{RMSE}_{\text{model}}/\text{RMSE}_{\text{benchmark}}`$. With the naive benchmark $`\hat y_t = y_{t-1}`$, $`U_2 < 1`$ means that the model beats the random-walk forecast.
 
-**Diebold-Mariano test.** For the forecast errors $`e_{1t}`$ and $`e_{2t}`$ of two models and the loss $`L(e) = \lvert e\rvert^p`$ ($`p = 2`$: squared, $`p = 1`$: absolute), the loss differential is $`d_t = L(e_{1t})-L(e_{2t})`$, $`t = 1,\dots,T`$. Under $`H_0:\operatorname{E}[d_t] = 0`$ (equal accuracy) and covariance stationarity of $`d_t`$,
+**Diebold-Mariano test.** For the forecast errors $`e_{1t}`$ and $`e_{2t}`$ of two models and the loss $`L(e) = \lvert e\rvert^p`$ ($`p = 2`$: squared, $`p = 1`$: absolute), the loss differential is $`d_t = L(e_{1t})-L(e_{2t})`$, $`t = 1,\dots,T`$. Under $`H_0:\mathrm{E}[d_t] = 0`$ (equal accuracy) and covariance stationarity of $`d_t`$,
 
 ```math
 DM = \frac{\bar d}{\sqrt{\widehat{\mathrm{LRV}}/T}},\qquad
@@ -248,12 +248,12 @@ which is asymptotically $`N(0,1)`$; for one-step forecasts ($`h = 1`$) the long-
 **Pesaran-Timmermann test.** Let $`a_t = \mathbb 1\{\Delta y_t > 0\}`$ and $`f_t = \mathbb 1\{\widehat{\Delta y}_t > 0\}`$ be the realised and predicted directions (periods with $`\Delta y_t = 0`$ are dropped), $`\hat P = T^{-1}\sum_t\mathbb 1\{a_t = f_t\}`$ the hit rate, $`p_y = \bar a`$ and $`p_x = \bar f`$. If predicted and realised directions are independent, the expected hit rate is $`P^* = p_yp_x+(1-p_y)(1-p_x)`$, and
 
 ```math
-PT = \frac{\hat P-P^*}{\sqrt{\widehat{\operatorname{Var}}(\hat P)-\widehat{\operatorname{Var}}(P^*)}}\;\xrightarrow{d}\;N(0,1),\qquad
-\widehat{\operatorname{Var}}(\hat P) = \frac{P^*(1-P^*)}{T},
+PT = \frac{\hat P-P^*}{\sqrt{\widehat{\mathrm{Var}}(\hat P)-\widehat{\mathrm{Var}}(P^*)}}\;\	o_d\;N(0,1),\qquad
+\widehat{\mathrm{Var}}(\hat P) = \frac{P^*(1-P^*)}{T},
 ```
 
 ```math
-\widehat{\operatorname{Var}}(P^*) = \frac{(2p_y-1)^2\,p_x(1-p_x)+(2p_x-1)^2\,p_y(1-p_y)}{T}+\frac{4\,p_yp_x(1-p_y)(1-p_x)}{T^2}.
+\widehat{\mathrm{Var}}(P^*) = \frac{(2p_y-1)^2\,p_x(1-p_x)+(2p_x-1)^2\,p_y(1-p_y)}{T}+\frac{4\,p_yp_x(1-p_y)(1-p_x)}{T^2}.
 ```
 
 The package reports the one-sided p-value ($`H_1`$: directional skill). The statistic is undefined when all predicted directions are equal ($`p_x\in\{0,1\}`$).
@@ -282,7 +282,7 @@ Assume $`\Delta y_t = \varepsilon_t`$, independent with mean zero and variance $
 
 ```math
 e^S_t = y_t-\hat y^{\text{Sutte}}_t \approx \varepsilon_t-\tfrac13\big(\varepsilon_{t-1}+\varepsilon_{t-2}+\varepsilon_{t-3}\big),\qquad
-\operatorname{Var}(e^S_t) = \sigma^2+3\cdot\tfrac19\,\sigma^2 = \tfrac43\,\sigma^2,
+\mathrm{Var}(e^S_t) = \sigma^2+3\cdot\tfrac19\,\sigma^2 = \tfrac43\,\sigma^2,
 ```
 
 whereas the naive forecast $`\hat y_t = y_{t-1}`$ has error $`\varepsilon_t`$ and variance $`\sigma^2`$. Hence
@@ -304,7 +304,7 @@ The α-Sutte error is an MA(3) process with coefficients $`(c_0,c_1,c_2,c_3) = (
 If the ARIMA component behaves like the naive forecast (error $`\varepsilon_t`$), the hybrid error is $`e^H_t = w\,\varepsilon_t+(1-w)\,e^S_t = \varepsilon_t-(1-w)\,\delta_t`$ and
 
 ```math
-\operatorname{Var}(e^H_t) = \sigma^2\Big(1+\frac{(1-w)^2}{3}\Big);\qquad
+\mathrm{Var}(e^H_t) = \sigma^2\Big(1+\frac{(1-w)^2}{3}\Big);\qquad
 w = \tfrac12:\quad \sigma^2\big(1+\tfrac1{12}\big),\qquad \text{RMSE ratio}\approx\sqrt{13/12} = 1.041 .
 ```
 
@@ -312,7 +312,7 @@ In this case any weight on α-Sutte increases the error, quadratically in $`1-w`
 
 ### 2.4 Optimal weight and forecast encompassing
 
-Suppose the ARIMA forecast is the conditional mean, $`\hat y^{\text{ARIMA}}_t = \operatorname{E}[y_t\mid\mathcal F_{t-1}]`$. Then $`e^A_t = \varepsilon_t`$ is uncorrelated with everything known at $`t-1`$, while $`e^S_t = \varepsilon_t+\big(\hat y^{\text{ARIMA}}_t-\hat y^{\text{Sutte}}_t\big)`$, where the bracket is known at $`t-1`$. Hence $`\sigma_{AS} = \sigma_A^2`$ and, with the formula of §1.3,
+Suppose the ARIMA forecast is the conditional mean, $`\hat y^{\text{ARIMA}}_t = \mathrm{E}[y_t\mid\mathcal F_{t-1}]`$. Then $`e^A_t = \varepsilon_t`$ is uncorrelated with everything known at $`t-1`$, while $`e^S_t = \varepsilon_t+\big(\hat y^{\text{ARIMA}}_t-\hat y^{\text{Sutte}}_t\big)`$, where the bracket is known at $`t-1`$. Hence $`\sigma_{AS} = \sigma_A^2`$ and, with the formula of §1.3,
 
 ```math
 w^* = \frac{\sigma_S^2-\sigma_{AS}}{\sigma_A^2+\sigma_S^2-2\sigma_{AS}} = \frac{\sigma_S^2-\sigma_A^2}{\sigma_S^2-\sigma_A^2} = 1 .
@@ -335,10 +335,10 @@ d_k\;\longrightarrow\;d^* = \frac{3\,\Delta y_T+2\,\Delta y_{T-1}+\Delta y_{T-2}
 \hat y_{T+h}\approx y_T+h\,d^*\quad(h\ \text{large}):
 ```
 
-the recursive α-Sutte forecast is a **linear trend** whose slope is a 3:2:1 weighted average of the last three changes. Under the random walk, $`\operatorname{Var}(d^*) = \sigma^2(9+4+1)/36 = \tfrac{7}{18}\sigma^2`$ and, because the future shocks are independent of $`d^*`$,
+the recursive α-Sutte forecast is a **linear trend** whose slope is a 3:2:1 weighted average of the last three changes. Under the random walk, $`\mathrm{Var}(d^*) = \sigma^2(9+4+1)/36 = \tfrac{7}{18}\sigma^2`$ and, because the future shocks are independent of $`d^*`$,
 
 ```math
-\operatorname{Var}\big(y_{T+h}-\hat y_{T+h}\big)\approx h\,\sigma^2+\tfrac{7}{18}\,h^2\sigma^2
+\mathrm{Var}\big(y_{T+h}-\hat y_{T+h}\big)\approx h\,\sigma^2+\tfrac{7}{18}\,h^2\sigma^2
 \qquad\text{versus}\qquad h\,\sigma^2\ \ \text{for the naive forecast}.
 ```
 
@@ -356,7 +356,7 @@ The RMSE ratio therefore grows like $`\sqrt{1+7h/18}`$: about 1.7 at $`h = 5`$, 
 
 | Property | Result |
 |---|---|
-| One-step error | $`e_t \approx \varepsilon_t - \tfrac13(\varepsilon_{t-1}+\varepsilon_{t-2}+\varepsilon_{t-3})`$, $`\operatorname{Var} = \tfrac43\sigma^2`$, so $`\text{RMSE}_{\text{Sutte}}/\text{RMSE}_{\text{naive}} \approx \sqrt{4/3} = 1.155`$ |
+| One-step error | $`e_t \approx \varepsilon_t - \tfrac13(\varepsilon_{t-1}+\varepsilon_{t-2}+\varepsilon_{t-3})`$, $`\mathrm{Var} = \tfrac43\sigma^2`$, so $`\text{RMSE}_{\text{Sutte}}/\text{RMSE}_{\text{naive}} \approx \sqrt{4/3} = 1.155`$ |
 | Equal-weight hybrid with a random-walk-like ARIMA | error variance $`(1+\tfrac1{12})\sigma^2`$, ratio ≈ 1.04 |
 | Optimal combination weight | $`w^* = \dfrac{\sigma_S^2-\sigma_{AS}}{\sigma_A^2+\sigma_S^2-2\sigma_{AS}} = \dfrac{4/3-1}{1+4/3-2} = 1`$: α-Sutte gets **zero** weight |
 | Recursive $`h`$-step forecast | increments converge to $`(3\Delta y_T+2\Delta y_{T-1}+\Delta y_{T-2})/6`$, i.e. a linear trend; error variance ≈ $`h\sigma^2 + 0.39\,h^2\sigma^2`$ versus $`h\sigma^2`$ for the naive forecast |
