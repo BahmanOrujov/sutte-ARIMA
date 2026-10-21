@@ -2,10 +2,10 @@ from setuptools import setup, find_packages
 
 setup(
     name="sutte-arima",
-    version="1.0.0",
+    version="2.0.0",
     author="Bahman Orujov",
     author_email="orucovbehmen@gmail.com",
-    description="SutteARIMA: Statsmodels-style hybrid Alpha-Sutte + ARIMA time series forecasting model",
+    description="SutteARIMA: statsmodels-style hybrid alpha-Sutte + ARIMA forecasting with leakage-free evaluation",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/BahmanOrujov/sutte-ARIMA",
@@ -23,4 +23,5 @@ setup(
         "scipy>=1.6",
         "statsmodels>=0.12",
     ],
+    extras_require={"plot": ["matplotlib"], "test": ["pytest"]},
 )

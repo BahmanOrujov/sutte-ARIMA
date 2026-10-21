@@ -1,418 +1,264 @@
-# SutteARIMA: Hybrid Time Series Forecasting for Econometrics
+# SutteARIMA: Hybrid α-Sutte + ARIMA Forecasting for Econometrics
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](CHANGELOG.md)
 
-**SutteARIMA** is an econometric time series forecasting library that combines the non-parametric **α-Sutte Indicator** (Ahmar, 2017) with the classical parametric **Box-Jenkins ARIMA/SARIMAX** model (Ahmar et al., 2019).
+**SutteARIMA** combines the non-parametric **α-Sutte indicator** (Ahmar, 2017) with the parametric **Box-Jenkins ARIMA/SARIMAX** model (Ahmar et al., 2019) behind a **statsmodels-style API**: automatic order selection, residual diagnostics, multi-step forecasts with prediction intervals and, since version 2.0, leakage-free out-of-sample evaluation against the naive benchmark.
 
-Designed with a clean, **statsmodels-compliant API** for econometricians, statisticians, and quantitative researchers—providing statistical rigor, automated order identification, comprehensive diagnostic test batteries, and multi-step forecasting with uncertainty intervals.
+---
+
+## What is new in 2.0
+
+Version 2.0 keeps the original estimator as the default (equal-weight average of an ARIMA forecast and the α-Sutte forecast on the original scale; point forecasts are identical to 1.0) and adds what is needed to use it in a statistically sound way.
+
+| Area | 1.0 | 2.0 |
+|---|---|---|
+| Scale | levels only | `transform="log"` for multiplicative / heteroskedastic series (prices) |
+| Trend | statsmodels silently drops the constant when `d > 0` | `trend="drift"` (constant in the `d`-th difference) or any statsmodels trend |
+| Exogenous regressors | not supported | `exog=` (regression with ARIMA errors), semantics and look-ahead rule documented |
+| Combination weight | fixed 0.5 | `weight=` any value in [0, 1] or `"optimal"` (Bates & Granger, 1969) |
+| Out-of-sample evaluation | static multi-step only, no benchmark | `rolling_forecast()` (expanding window, no look-ahead, `refit_every`) and `evaluate()` (U2, Diebold-Mariano, Pesaran-Timmermann) |
+| Prediction intervals | hybrid-centred heuristic | quantiles of the ARIMA predictive distribution (`interval="arima"`); the old rule is available as `interval="legacy"` |
+| Comparison tests | — | `diebold_mariano()`, `pesaran_timmermann()`, `theil_u2()`, `U2` in `calculate_metrics()` |
+| Order selection | AICc computed by hand with `k = p + q + 1`; lower-case `ic` crashed | statsmodels AICc/BIC/HQIC; case-insensitive `ic`; `transform`, `trend`, `exog`, fixed `d` |
+| Diagnostics | DW, Ljung-Box, Jarque-Bera, break-variance | + ARCH-LM; tests on the modelling scale |
+| Side effects | `warnings.filterwarnings("ignore")` at import (global) | warnings are filtered locally during estimation only |
+| Tests | — | `tests/` (pytest): equivalence with the reference R implementation, backward compatibility, no look-ahead, exog rules, test statistics |
+
+See [CHANGELOG.md](CHANGELOG.md) for details and migration notes.
 
 ---
 
 ## Table of Contents
 
-- [1. Mathematical Foundations & Theoretical Background](#1-mathematical-foundations--theoretical-background)
-  - [1.1 The α-Sutte Indicator](#11-the-α-sutte-indicator)
-  - [1.2 The Box-Jenkins ARIMA & SARIMAX Model](#12-the-box-jenkins-arima--sarimax-model)
-  - [1.3 The Hybrid SutteARIMA Ensemble Formulation](#13-the-hybrid-suttearima-ensemble-formulation)
-  - [1.4 Econometric Order Selection Methodology](#14-econometric-order-selection-methodology)
-  - [1.5 Multi-Step Forecasting & Uncertainty Quantification](#15-multi-step-forecasting--uncertainty-quantification)
-  - [1.6 Econometric Diagnostic Tests Battery](#16-econometric-diagnostic-tests-battery)
-  - [1.7 Evaluation & Accuracy Metrics Reference](#17-evaluation--accuracy-metrics-reference)
-- [2. Codebase Architecture & Software Documentation](#2-codebase-architecture--software-documentation)
-  - [2.1 Architecture Overview & Directory Layout](#21-architecture-overview--directory-layout)
-  - [2.2 Core Modules & API Reference](#22-core-modules--api-reference)
-  - [2.3 Installation & System Requirements](#23-installation--system-requirements)
-  - [2.4 Complete End-to-End Workflow](#24-complete-end-to-end-workflow)
-  - [2.5 Formatted Estimation Summary Output](#25-formatted-estimation-summary-output)
-- [3. Academic References](#3-academic-references)
+1. [Mathematical foundations](#1-mathematical-foundations)
+2. [Statistical properties of α-Sutte (read before using it)](#2-statistical-properties-of-α-sutte)
+3. [Evaluation methodology](#3-evaluation-methodology)
+4. [API reference](#4-api-reference)
+5. [End-to-end workflow](#5-end-to-end-workflow)
+6. [References](#6-references)
 
 ---
 
-# 1. Mathematical Foundations & Theoretical Background
-
-Traditional ARIMA models rely entirely on linear lag polynomials and differencing, which can struggle to adapt quickly to localized non-linearities, short-run momentum, and sudden structural shifts. The **SutteARIMA** framework overcomes these limitations by combining parametric Box-Jenkins dynamics with the adaptive, non-parametric **α-Sutte** indicator.
+# 1. Mathematical foundations
 
 ```mermaid
 flowchart TD
-    Raw["Raw Time Series: y_t"] --> BJ["Box-Jenkins Parametric Branch"]
-    Raw --> AS["Alpha-Sutte Non-Parametric Branch"]
-    
-    subgraph Parametric ["1. Parametric Dynamics (Box-Jenkins ARIMA)"]
-        BJ --> ADF["ADF Stationarity Test (Determine d)"]
-        ADF --> Grid["Grid Search: p in [0, max_p], q in [0, max_q]"]
-        Grid --> AICc["Small-Sample Criterion: Min(AICc)"]
-        AICc --> MLE["Maximum Likelihood Estimation"]
-        MLE --> ARIMA_Fitted["ARIMA Projections: ŷ_ARIMA"]
-    end
-
-    subgraph NonParametric ["2. Non-Parametric Momentum (Alpha-Sutte)"]
-        AS --> Window["Rolling 4-Period Historical Window: y_t-4, y_t-3, y_t-2, y_t-1"]
-        Window --> Diffs["Successive Differences: Δx, Δy, Δz"]
-        Diffs --> Midpoints["Sub-Period Midpoints: m_x, m_y, m_z"]
-        Midpoints --> Increments["Dynamic Step Increments: τ_x, τ_y, τ_z"]
-        Increments --> Sutte_Fitted["Alpha-Sutte Projections: ŷ_Sutte"]
-    end
-
-    ARIMA_Fitted & Sutte_Fitted --> Ensemble["3. Equal-Weighted Ensemble: (ŷ_ARIMA + ŷ_Sutte) / 2"]
-    Ensemble --> Results["SutteARIMAResults Object"]
-    Results --> Diag["Diagnostic Battery: DW, Ljung-Box, Jarque-Bera, Heteroskedasticity"]
-    Results --> Metrics["Accuracy Matrix: MAPE, sMAPE, RMSE, MAE, TIC, MASE"]
-    Results --> Forecast["Multi-Step Out-of-Sample Forecasts with Confidence Intervals"]
+    Raw["Series y_t (optionally z_t = ln y_t)"] --> BJ["ARIMA(p,d,q) on z_t: order via ADF + information criterion"]
+    Raw --> AS["α-Sutte on y_t: four-point window"]
+    BJ --> MLE["Exact MLE (Kalman filter); optional drift and exog"]
+    MLE --> A["ARIMA forecast, back-transformed"]
+    AS --> S["α-Sutte forecast"]
+    A & S --> H["Hybrid: w·ARIMA + (1−w)·Sutte, w fixed or Bates–Granger optimal"]
+    H --> R["SutteARIMAResults"]
+    R --> F["forecast(): point forecasts + ARIMA predictive intervals"]
+    R --> E["rolling_forecast() / evaluate(): one-step-ahead, vs naive, DM / PT tests"]
 ```
 
----
+### 1.1 The α-Sutte indicator
 
-### 1.1 The α-Sutte Indicator
+For the four most recent observations $`y_{t-4},\dots,y_{t-1}`$:
 
-Introduced by Dr. Ansari Saleh Ahmar (2017), the **α-Sutte indicator** is a non-parametric forecasting method that calculates dynamic relative changes across the four most recent chronological observations:
+$$\Delta x = y_{t-3}-y_{t-4},\quad \Delta y = y_{t-2}-y_{t-3},\quad \Delta z = y_{t-1}-y_{t-2}$$
 
-$$y_{t-4}, \quad y_{t-3}, \quad y_{t-2}, \quad y_{t-1}$$
+$$m_x = \frac{y_{t-3}+y_{t-4}}{2},\quad m_y = \frac{y_{t-2}+y_{t-3}}{2},\quad m_z = \frac{y_{t-1}+y_{t-2}}{2}$$
 
-The forecast for period $`t`$, denoted as $`\hat{y}_{t, \text{Sutte}}`$, is derived through the following four steps:
+$$\tau_x = y_{t-3}\frac{\Delta x}{m_x},\quad \tau_y = y_{t-2}\frac{\Delta y}{m_y},\quad \tau_z = y_{t-1}\frac{\Delta z}{m_z},\qquad \delta_t = \frac{\tau_x+\tau_y+\tau_z}{3}$$
 
-#### Step 1: Successive Historical Differences ($`\Delta`$)
+$$\hat{y}_{t}^{\text{Sutte}} = y_{t-1} + \delta_t$$
 
-$$\Delta x = y_{t-3} - y_{t-4}, \quad \Delta y = y_{t-2} - y_{t-3}, \quad \Delta z = y_{t-1} - y_{t-2}$$
+A guard replaces $`\tau = \Delta`$ when $`|m| < 10^{-12}`$. The implementation reproduces the reference R implementation `alpha.sutte` of the CRAN package `sutteForecastR` 0.1 (Ahmar, 2017) to machine precision (see `tests/`). Multi-step forecasts are recursive: forecasts are fed back into the four-point window.
 
-#### Step 2: Sub-Period Midpoints ($`m`$)
+### 1.2 The ARIMA component
 
-$$m_x = \frac{y_{t-3} + y_{t-4}}{2}, \quad m_y = \frac{y_{t-2} + y_{t-3}}{2}, \quad m_z = \frac{y_{t-1} + y_{t-2}}{2}$$
+$$\Phi_p(B)\,\tilde\Phi_P(B^s)\,(1-B)^d(1-B^s)^D z_t = c_t + \Theta_q(B)\,\tilde\Theta_Q(B^s)\,\varepsilon_t,\qquad \varepsilon_t \sim \text{WN}(0,\sigma^2)$$
 
-#### Step 3: Dynamic Step Increments ($`\tau`$) with Numerical Guard
+with $`z_t = y_t`$ (default) or $`z_t = \ln y_t`$ (`transform="log"`). Parameters are estimated by exact maximum likelihood through the Kalman filter (statsmodels).
 
-To guarantee numerical stability when sub-period midpoints approach zero, each step increment applies a threshold guard ($`|m| > 10^{-12}`$):
+**Trend.** statsmodels writes the trend in levels, $`z_t = \text{trend}_t + u_t`$ with $`u_t`$ integrated, so a constant is not identified when $`d+D>0`$. `trend="drift"` adds the trend term of power $`d+D`$, i.e. a constant in the differenced series ($`\Delta z_t = c + \dots`$ for $`d=1`$).
 
-$$\tau_x = \begin{cases} y_{t-3} \cdot \left(\frac{\Delta x}{m_x}\right) = \frac{2 y_{t-3}(y_{t-3} - y_{t-4})}{y_{t-3} + y_{t-4}}, & \text{if } |m_x| > 10^{-12} \\\\ \Delta x, & \text{otherwise} \end{cases}$$
+**Exogenous regressors (regression with ARIMA errors).**
 
-$$\tau_y = \begin{cases} y_{t-2} \cdot \left(\frac{\Delta y}{m_y}\right) = \frac{2 y_{t-2}(y_{t-2} - y_{t-3})}{y_{t-2} + y_{t-3}}, & \text{if } |m_y| > 10^{-12} \\\\ \Delta y, & \text{otherwise} \end{cases}$$
+$$z_t = x_t'\beta + u_t,\qquad u_t \sim \text{ARIMA}(p,d,q)\quad\Longrightarrow\quad \Delta z_t = \Delta x_t'\beta + \text{ARMA error}\ \ (d=1)$$
 
-$$\tau_z = \begin{cases} y_{t-1} \cdot \left(\frac{\Delta z}{m_z}\right) = \frac{2 y_{t-1}(y_{t-1} - y_{t-2})}{y_{t-1} + y_{t-2}}, & \text{if } |m_z| > 10^{-12} \\\\ \Delta z, & \text{otherwise} \end{cases}$$
+Consequences for intervention dummies when $`d = 1`$ (Box & Tiao, 1975):
 
-#### Step 4: Aggregate Step Increment ($`\Delta_t`$) and Point Forecast
+| `exog` column | Effect on $`\Delta z_t`$ | Effect on the level of $`z_t`$ |
+|---|---|---|
+| pulse $`\mathbb 1\{t=t_0\}`$ | $`+\beta`$ at $`t_0`$, $`-\beta`$ at $`t_0+1`$ | one-period jump that fully reverts |
+| step $`\mathbb 1\{t\ge t_0\}`$ | $`+\beta`$ at $`t_0`$ | permanent level shift |
+| window $`\mathbb 1\{t_0\le t\le t_1\}`$ | $`+\beta`$ at entry, $`-\beta`$ at exit | shift that **fully reverts when the window ends** |
+| ramp $`\sum_{s\le t}\mathbb 1\{t_0\le s\le t_1\}`$ | $`+\beta`$ on every window day | permanent cumulative effect $`\beta L`$ |
 
-The overall step increment is the arithmetic average across all three dynamic sub-intervals:
+To estimate the effect of an event on **returns** (growth rates) during a window with `transform="log"` and `d=1`, pass the cumulative sum of the window dummy.
 
-$$\Delta_t = \frac{\tau_x + \tau_y + \tau_z}{3}$$
+> **Look-ahead rule.** Every regressor must be known when the forecast is made. Never build exog from the contemporaneous value of the series (e.g. a dummy for "today's return exceeds 8%"): the regressor then contains the dependent variable, produces spectacular but meaningless t-statistics and information criteria, and cannot be used for forecasting.
 
-The resulting non-parametric projection for time $`t`$ is:
+### 1.3 The hybrid
 
-$$\hat{y}_{t, \text{Sutte}} = y_{t-1} + \Delta_t$$
+$$\hat{y}_t^{\text{SutteARIMA}} = w\,\hat{y}_t^{\text{ARIMA}} + (1-w)\,\hat{y}_t^{\text{Sutte}},\qquad w\in[0,1]$$
 
----
+$`w = 0.5`$ is the original SutteARIMA. With `weight="optimal"` the weight minimises the in-sample sum of squared one-step errors of the combination (Bates & Granger, 1969):
 
-### 1.2 The Box-Jenkins ARIMA & SARIMAX Model
+$$w^* = \frac{\sum_t e^S_t\,(e^S_t-e^A_t)}{\sum_t (e^A_t-e^S_t)^2},\quad\text{clipped to } [0,1]$$
 
-The univariate Box-Jenkins $`\text{ARIMA}(p, d, q)`$ process is formulated in backshift operator notation ($`B^k y_t = y_{t-k}`$) as:
+where $`e^A_t = y_t-\hat y^{\text{ARIMA}}_t`$ and $`e^S_t = y_t-\hat y^{\text{Sutte}}_t`$; relative errors $`e_t/y_t`$ are used when `transform="log"`. For $`t < 4`$ (no α-Sutte value) the hybrid equals the ARIMA fit; the first $`d + Ds`$ ARIMA fitted values come from the diffuse initialisation and are reported as `NaN`.
 
-$$\Phi_p(B) (1 - B)^d y_t = c + \Theta_q(B) \varepsilon_t$$
+### 1.4 Order selection (`find_order`)
 
-Where:
-- $`\Phi_p(B) = 1 - \sum_{i=1}^p \phi_i B^i = 1 - \phi_1 B - \phi_2 B^2 - \dots - \phi_p B^p`$ is the Autoregressive (AR) lag polynomial of order $`p`$.
-- $`(1 - B)^d`$ is the difference operator of integration order $`d`$, such that $`\Delta^d y_t = (1 - B)^d y_t`$.
-- $`\Theta_q(B) = 1 + \sum_{j=1}^q \theta_j B^j = 1 + \theta_1 B + \theta_2 B^2 + \dots + \theta_q B^q`$ is the Moving Average (MA) lag polynomial of order $`q`$.
-- $`c`$ is the constant or deterministic drift term.
-- $`\varepsilon_t \overset{\text{i.i.d.}}{\sim} \mathcal{N}(0, \sigma^2)`$ is Gaussian white noise.
+1. **Integration order** from ADF tests on $`z_t`$: $`d=0`$ if the level is stationary at 5%, else $`d=1`$ if the first difference is, else $`d=2`$ (or supply `d=`).
+2. **Grid search** over $`p\le p_{\max}`$, $`q\le q_{\max}`$ with the same `trend` and `exog` as the final model.
+3. **Criterion**: AICc (default), AIC, BIC or HQIC from statsmodels, where $`k`$ counts all estimated parameters including $`\sigma^2`$:
 
-When seasonal periodicity $`s`$ is specified, the multiplicative seasonal extension $`\text{SARIMA}(p, d, q) \times (P, D, Q)_s`$ is defined as:
+$$\text{AIC}=-2\ln\hat L+2k,\qquad \text{AICc}=\text{AIC}+\frac{2k(k+1)}{n-k-1},\qquad \text{BIC}=-2\ln\hat L+k\ln n$$
 
-$$\Phi_p(B) \tilde{\Phi}_P(B^s) (1 - B)^d (1 - B^s)^D y_t = c + \Theta_q(B) \tilde{\Theta}_Q(B^s) \varepsilon_t$$
+AICc is a finite-sample correction (Hurvich & Tsai, 1989); BIC is consistent and usually preferable for long series.
 
-Where:
-- $`\tilde{\Phi}_P(B^s) = 1 - \tilde{\phi}_1 B^s - \dots - \tilde{\phi}_P B^{P s}`$ is the seasonal AR polynomial.
-- $`(1 - B^s)^D`$ is the seasonal differencing operator of order $`D`$.
-- $`\tilde{\Theta}_Q(B^s) = 1 + \tilde{\theta}_1 B^s + \dots + \tilde{\theta}_Q B^{Q s}`$ is the seasonal MA polynomial.
+### 1.5 Forecasts and prediction intervals
 
----
+* **Point forecasts**: $`\hat y_{T+h} = w\,\hat y^{\text{ARIMA}}_{T+h} + (1-w)\,\hat y^{\text{Sutte}}_{T+h}`$. With `transform="log"`, $`\hat y^{\text{ARIMA}}_{T+h} = \exp(\hat z_{T+h})`$ is the predictive **median**.
+* **Intervals (`interval="arima"`, default)**: quantiles of the predictive distribution of the fitted ARIMA model, back-transformed when `transform="log"`. A prediction interval describes the distribution of the future observation, so it does not depend on which point forecast is reported.
+* **`interval="legacy"`**: the 1.0 rule (hybrid-centred; in-sample hybrid residual SD scaled by the ARIMA standard-error growth). It has no probabilistic justification and badly understates uncertainty at long horizons for the recursive α-Sutte (see §2); it is kept only to reproduce 1.0 results.
 
-### 1.3 The Hybrid SutteARIMA Ensemble Formulation
+### 1.6 Residual diagnostics (`summary()`)
 
-The hybrid SutteARIMA model combines the individual parametric and non-parametric predictions through an equal-weighted ensemble:
+| Test | Statistic | $`H_0`$ |
+|---|---|---|
+| Durbin-Watson | $`\sum(\hat e_t-\hat e_{t-1})^2/\sum\hat e_t^2`$ | no first-order autocorrelation (≈ 2) |
+| Ljung-Box | $`n(n+2)\sum_{k=1}^m r_k^2/(n-k)`$ | no autocorrelation |
+| ARCH-LM (Engle, 1982) | $`nR^2`$ of $`\hat e_t^2`$ on its lags | no conditional heteroskedasticity |
+| Jarque-Bera | $`\frac n6\big(S^2+\frac{(K-3)^2}{4}\big)`$ | normality |
+| Break-variance | ratio of residual variances in the last/first thirds | homoskedasticity |
 
-$$\hat{y}_{t, \text{SutteARIMA}} = \frac{\hat{y}_{t, \text{ARIMA}} + \hat{y}_{t, \text{Sutte}}}{2}$$
-
-#### Boundary Condition for In-Sample Fitting ($`t < 4`$):
-Because the α-Sutte indicator strictly requires four lagged historical observations $`(y_{t-4}, y_{t-3}, y_{t-2}, y_{t-1})`$, α-Sutte step increments cannot be computed for in-sample indices $`t \in \{0, 1, 2, 3\}`$. The library applies the formal boundary condition:
-
-$$\hat{y}_{t, \text{SutteARIMA}} = \begin{cases} \hat{y}_{t, \text{ARIMA}}, & \text{for } t < 4 \\\\ \frac{1}{2}\left(\hat{y}_{t, \text{ARIMA}} + \hat{y}_{t, \text{Sutte}}\right), & \text{for } t \ge 4 \end{cases}$$
-
----
-
-### 1.4 Econometric Order Selection Methodology
-
-Finding the optimal lag specification $`(p, d, q)`$ follows the classical three-stage Box-Jenkins econometric methodology:
-
-```mermaid
-flowchart TD
-    A["Raw Series y_t"] --> B["ADF Unit-Root Test"]
-    B -->|"p < 0.05"| C["d = 0 (Stationary)"]
-    B -->|"p >= 0.05"| D["First Difference Δy_t"]
-    D -->|"ADF p < 0.05"| E["d = 1"]
-    D -->|"ADF p >= 0.05"| F["d = 2"]
-    C & E & F --> G["Grid-Search Candidate (p, q)"]
-    G --> H["Minimize Small-Sample Criterion: AICc"]
-    H --> I["Validate Parameter Significance (p < 0.05)"]
-    I --> J["Evaluate Residual Diagnostics: Ljung-Box, Jarque-Bera, DW"]
-```
-
-#### 1. Stationarity & Integration Order ($`d`$) via ADF Test
-The Augmented Dickey-Fuller (ADF) regression is estimated:
-
-$$\Delta y_t = \alpha + \beta t + \gamma y_{t-1} + \sum_{i=1}^k \delta_i \Delta y_{t-i} + e_t$$
-
-Testing the unit-root hypotheses:
-
-$$H_0: \gamma = 0 \quad (\text{Unit Root Present, Non-Stationary}) \quad \text{vs.} \quad H_1: \gamma < 0 \quad (\text{Stationary})$$
-
-- If the level series p-value satisfies $`p_{\text{ADF}} < 0.05`$, the series is integrated of order zero $`I(0) \implies d = 0`$.
-- If $`p_{\text{ADF}} \ge 0.05`$, the series is differenced $`\Delta y_t = y_t - y_{t-1}`$. If $`p_{\text{ADF}}(\Delta y_t) < 0.05 \implies d = 1`$.
-- If still non-stationary, second differencing $`\Delta^2 y_t`$ is evaluated $`\implies d = 2`$.
-
-#### 2. Candidate Order Space ($`p, q`$) & Maximum Likelihood Estimation
-Candidate combinations of $`p \in [0, p_{\max}]`$ and $`q \in [0, q_{\max}]`$ are fitted using Maximum Likelihood Estimation (via the Kalman filter):
-
-$$\ln \hat{L} = -\frac{n}{2}\ln(2\pi) - \frac{n}{2}\ln(\sigma^2) - \frac{1}{2\sigma^2}\sum_{t=1}^n \varepsilon_t^2$$
-
-#### 3. Information Criteria Selection & Finite-Sample Correction
-To balance goodness-of-fit against overparameterization:
-- **Akaike Information Criterion (AIC):**
-  $$\text{AIC} = -2\ln \hat{L} + 2k$$
-  where $`k = p + q + 1`$ is the number of estimated parameters.
-- **Hurvich & Tsai's Corrected Criterion (AICc) (Default):**
-  $$\text{AICc} = \text{AIC} + \frac{2k(k+1)}{n - k - 1}$$
-  In finite samples ($`n < 200`$), standard AIC penalizes extra parameters too weakly, leading to overfitting. $\text{AICc}$ provides exact small-sample correction.
-- **Bayesian Information Criterion (BIC / Schwarz):**
-  $$\text{BIC} = -2\ln \hat{L} + k\ln(n)$$
-
-#### 4. Principle of Parsimony & Residual Diagnostics
-Estimated coefficients are tested for individual significance ($`p < 0.05`$), and residuals must satisfy white noise and normality assumptions.
+Hybrid residuals are tested on the modelling scale ($`\ln y_t - \ln\hat y_t`$ when `transform="log"`).
 
 ---
 
-### 1.5 Multi-Step Forecasting & Uncertainty Quantification
+# 2. Statistical properties of α-Sutte
 
-For an $`h`$-step ahead forecast horizon ($`h = 1, 2, \dots, H`$):
+Because $`y_{t-j}/m_{t-j} = 1/(1-g_{t-j}/2)`$ with $`g_{t-j} = \Delta y_{t-j}/y_{t-j}`$,
 
-#### 1. Point Forecast Synthesis
+$$\delta_t \;=\; \underbrace{\tfrac13\sum_{j=1}^{3}\Delta y_{t-j}}_{\text{average of the last three changes}} \;+\; \underbrace{\tfrac16\sum_{j=1}^{3}y_{t-j}\,g_{t-j}^2}_{\approx\, y\,\sigma^2/2\ \text{(upward bias)}} \;+\; O(g^3).$$
 
-**ARIMA Component:** Uses state-space Kalman filtering to compute conditional expectations and analytical standard errors:
+α-Sutte is therefore a short-run **momentum extrapolation**. Consequences when the series is close to a random walk, $`\Delta y_t = \varepsilon_t`$ with variance $`\sigma^2`$ (the usual case for asset prices):
 
-$$\hat{y}_{T+h, \text{ARIMA}} = \mathbb{E}\left[y_{T+h} \mid \mathcal{F}_T\right]$$
+| Property | Result |
+|---|---|
+| One-step error | $`e_t \approx \varepsilon_t - \tfrac13(\varepsilon_{t-1}+\varepsilon_{t-2}+\varepsilon_{t-3})`$, $`\operatorname{Var} = \tfrac43\sigma^2`$, so $`\text{RMSE}_{\text{Sutte}}/\text{RMSE}_{\text{naive}} \approx \sqrt{4/3} = 1.155`$ |
+| Equal-weight hybrid with a random-walk-like ARIMA | error variance $`(1+\tfrac1{12})\sigma^2`$, ratio ≈ 1.04 |
+| Optimal combination weight | $`w^* = \dfrac{\sigma_S^2-\sigma_{AS}}{\sigma_A^2+\sigma_S^2-2\sigma_{AS}} = \dfrac{4/3-1}{1+4/3-2} = 1`$: α-Sutte gets **zero** weight |
+| Recursive $`h`$-step forecast | increments converge to $`(3\Delta y_T+2\Delta y_{T-1}+\Delta y_{T-2})/6`$, i.e. a linear trend; error variance ≈ $`h\sigma^2 + 0.39\,h^2\sigma^2`$ versus $`h\sigma^2`$ for the naive forecast |
 
-**α-Sutte Component:** Recursively projects forward by rolling the four-point evaluation window:
+α-Sutte can only add value when changes are positively autocorrelated. **Always compare against the naive forecast** with `evaluate()`; level-scale MAPE values of 1–2% for daily prices mainly reflect persistence, not forecasting skill.
 
-$$\hat{y}_{T+1, \text{Sutte}} = y_T + \Delta(y_{T-3}, y_{T-2}, y_{T-1}, y_T)$$
-
-$$\hat{y}_{T+2, \text{Sutte}} = \hat{y}_{T+1, \text{Sutte}} + \Delta(y_{T-2}, y_{T-1}, y_T, \hat{y}_{T+1, \text{Sutte}})$$
-
-$$\hat{y}_{T+h, \text{Sutte}} = \hat{y}_{T+h-1, \text{Sutte}} + \Delta(\hat{y}_{T+h-4, \text{Sutte}}, \hat{y}_{T+h-3, \text{Sutte}}, \hat{y}_{T+h-2, \text{Sutte}}, \hat{y}_{T+h-1, \text{Sutte}})$$
-
-**Hybrid Point Forecast:**
-
-$$\hat{y}_{T+h, \text{hybrid}} = \frac{\hat{y}_{T+h, \text{ARIMA}} + \hat{y}_{T+h, \text{Sutte}}}{2}$$
-
-#### 2. Hybrid Standard Error Scaling
-The hybrid residual standard deviation $`\sigma_{\text{resid}} = \sqrt{\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)^2}`$ is scaled by the horizon expansion ratio of the ARIMA model:
-
-$$\text{SE}_{T+h, \text{hybrid}} = \sigma_{\text{resid}} \times \left(\frac{\text{SE}_{T+h, \text{ARIMA}}}{\text{SE}_{T+1, \text{ARIMA}}}\right)$$
-
-#### 3. $(1 - \alpha_{\text{ci}})\times 100\%$ Prediction Intervals
-For a significance level $`\alpha_{\text{ci}}`$ (e.g., $`\alpha_{\text{ci}} = 0.05 \implies 95\%`$ confidence interval), the critical value $`z = \Phi^{-1}(1 - \alpha_{\text{ci}}/2)`$ is derived from the standard normal quantile function ($`z \approx 1.960`$ for 95%):
-
-$$\left[\hat{y}_{T+h, \text{hybrid}} - z \cdot \text{SE}_{T+h, \text{hybrid}}, \quad \hat{y}_{T+h, \text{hybrid}} + z \cdot \text{SE}_{T+h, \text{hybrid}}\right]$$
+**A note on the literature.** The reference function `sutteForecastR::alpha.sutte` reports α-Sutte "test" forecasts that are one-step-ahead predictions using the realised test observations, while the competing models (auto.arima, Holt-Winters, NNETAR, robust ETS, theta) are evaluated with 1- to 7-step static forecasts from the end of the training sample. Comparisons made this way favour α-Sutte mechanically. `rolling_forecast()` evaluates all components under the same one-step-ahead information set.
 
 ---
 
-### 1.6 Econometric Diagnostic Tests Battery
+# 3. Evaluation methodology
 
-Residual diagnostic checks verify that model residuals $`\hat{e}_t = y_t - \hat{y}_t`$ behave as classical Gaussian white noise:
+* **`rolling_forecast(test, exog=None, refit_every=None)`**: expanding-window one-step-ahead forecasts. The forecast of observation $`t`$ uses only data up to $`t-1`$ (plus the period-$`t`$ value of `exog`, which must be known in advance). With `refit_every=k` the ARIMA (and an `"optimal"` weight) is re-estimated every $`k`$ observations; between refits the Kalman filter is run with fixed parameters.
+* **`evaluate(...)`**: metrics for the hybrid, its two components and the naive forecast $`\hat y_t = y_{t-1}`$, plus
+  * **Theil's U2** $`=\text{RMSE}/\text{RMSE}_{\text{naive}}`$ (< 1 beats the naive forecast);
+  * **Diebold-Mariano** test with the Harvey-Leybourne-Newbold correction (squared and absolute loss) against the naive forecast;
+  * **Pesaran-Timmermann** test of directional accuracy.
+* **`metrics(test)`**: static multi-step accuracy from the end of the sample (U2 against the naive multi-step forecast).
 
-| Diagnostic Test | Mathematical Formula | Null Hypothesis ($`H_0`$) & Target | Python Call |
-| :--- | :--- | :--- | :--- |
-| **Durbin-Watson ($`DW`$)** | $`\frac{\sum_{t=2}^n (\hat{e}_t - \hat{e}_{t-1})^2}{\sum_{t=1}^n \hat{e}_t^2}`$ | $`DW \approx 2.0 \implies \text{No first-order serial correlation}`$ | `res.durbin_watson` |
-| **Ljung-Box ($`Q`$)** | $`n(n+2)\sum_{k=1}^m \frac{r_k^2}{n - k}`$ | $`H_0\text{: Residuals are White Noise } (p > 0.05)`$ | `res.ljung_box` |
-| **Jarque-Bera ($`JB`$)** | $`\frac{n}{6}\left(S^2 + \frac{(K - 3)^2}{4}\right)`$ | $`H_0\text{: Residuals are Normally Distributed } (p > 0.05)`$ | `res.jarque_bera` |
-| **Heteroskedasticity ($`H`$)** | $`\frac{\sum_{t=n-h+1}^n \hat{e}_t^2}{\sum_{t=1}^h \hat{e}_t^2}`$ | $`H_0\text{: Residual variance is Homoskedastic } (p > 0.05)`$ | `res.heteroskedasticity` |
-
----
-
-### 1.7 Evaluation & Accuracy Metrics Reference
-
-All forecasting performance metrics are computed from actual observations $`y_t`$ and corresponding model predictions $`\hat{y}_t`$ across $`t = 1, \dots, n`$:
-
-| Metric | Mathematical Formula | Description & Benchmark | Python Call |
-| :--- | :--- | :--- | :--- |
-| **MAPE (%)** | $`\frac{100\%}{n}\sum_{t=1}^n \left\lvert\frac{y_t - \hat{y}_t}{y_t}\right\rvert`$ | Mean Absolute Percentage Error (standard in Sutte literature) | `res.mape` |
-| **sMAPE (%)** | $`\frac{100\%}{n}\sum_{t=1}^n \frac{2\lvert y_t - \hat{y}_t\rvert}{\lvert y_t\rvert + \lvert\hat{y}_t\rvert}`$ | Symmetric MAPE; bounded strictly in $[0\%, 200\%]$ | `res.smape` |
-| **RMSE** | $`\sqrt{\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)^2}`$ | Root Mean Squared Error (penalizes large outlier errors) | `res.rmse` |
-| **MSE** | $`\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)^2`$ | Mean Squared Error (prediction variance) | `res.mse` |
-| **MAE** | $`\frac{1}{n}\sum_{t=1}^n \lvert y_t - \hat{y}_t\rvert`$ | Mean Absolute Error (robust linear distance) | `res.mae` |
-| **Theil's TIC** | $`\frac{\text{RMSE}}{\sqrt{\frac{1}{n}\sum_{t=1}^n y_t^2} + \sqrt{\frac{1}{n}\sum_{t=1}^n \hat{y}_t^2}}`$ | Theil's Inequality Coefficient ($`0 = \text{perfect}`$, $`1 = \text{worst}`$) | `res.tic` |
-| **MASE** | $`\frac{\text{MAE}}{\frac{1}{N_{\text{train}}-1}\sum_{t=2}^{N_{\text{train}}} \lvert y_t - y_{t-1}\rvert}`$ | Scaled vs. random walk naive benchmark ($`< 1 = \text{superior}`$) | `res.mase` |
-| **MaxAE** | $`\max_{1 \le t \le n} \lvert y_t - \hat{y}_t\rvert`$ | Maximum Absolute Error (worst-case individual prediction error) | `res.max_ae` |
-| **MBE** | $`\frac{1}{n}\sum_{t=1}^n (y_t - \hat{y}_t)`$ | Mean Bias Error (positive = under-forecast, negative = over-forecast) | `res.mbe` |
+| Metric | Formula | Note |
+|---|---|---|
+| MAPE (%) | $`\frac{100}{n}\sum\lvert(y_t-\hat y_t)/y_t\rvert`$ | |
+| sMAPE (%) | $`\frac{100}{n}\sum\frac{2\lvert y_t-\hat y_t\rvert}{\lvert y_t\rvert+\lvert\hat y_t\rvert}`$ | |
+| RMSE, MSE, MAE, MaxAE, MBE | standard | MBE = mean(actual − predicted) |
+| TIC (Theil U1) | $`\frac{\text{RMSE}}{\sqrt{\overline{y^2}}+\sqrt{\overline{\hat y^2}}}`$ | close to 0 for any level forecast of a persistent series — not a skill measure |
+| U2 | $`\text{RMSE}/\text{RMSE}_{\text{benchmark}}`$ | returned when `benchmark=` is given |
+| MASE | $`\text{MAE}/\overline{\lvert\Delta y\rvert}_{\text{train}}`$ | < 1 means better than the *in-sample* naive MAE, not necessarily better than the naive forecast out of sample |
 
 ---
 
-# 2. Codebase Architecture & Software Documentation
+# 4. API reference
 
-### 2.1 Architecture Overview & Directory Layout
-
-The codebase is organized with a clean, functional separation of concerns:
-
-```text
-sutte-ARIMA/
-├── sutte_arima/
-│   ├── __init__.py       # Package public interface (exposes classes and functions)
-│   └── model.py          # Complete modeling engine, diagnostics, and algorithms
-├── pyproject.toml        # Modern build tool configuration (PEP 517/518)
-├── setup.py              # Setuptools distribution script
-└── README.md             # Consolidated documentation and user guide
-```
-
----
-
-### 2.2 Core Modules & API Reference
-
-#### 1. Metric Calculation Engine: `calculate_metrics()`
 ```python
-calculate_metrics(actual: Sequence[float], predicted: Sequence[float], train_data: Optional[Sequence[float]] = None) -> Dict[str, float]
+from sutte_arima import (SutteARIMA, SutteARIMAResults, AlphaSutte, find_order, calculate_metrics,
+                         diebold_mariano, pesaran_timmermann, theil_u2)
 ```
-- Filters out NaN/Inf pairs dynamically.
-- Calculates all 9 accuracy metrics and returns a formatted dictionary.
-- If `train_data` is supplied, computes MASE normalized by in-sample 1-step naive differences.
 
-#### 2. α-Sutte Component: `class AlphaSutte`
-- `step_increment(y_t4: float, y_t3: float, y_t2: float, y_t1: float) -> float`: Evaluates midpoints and dynamic increments.
-- `compute_fitted(series: np.ndarray) -> np.ndarray`: Computes in-sample rolling values for $`t \ge 4`$.
-- `compute_forecast(series: np.ndarray, steps: int) -> np.ndarray`: Produces out-of-sample recursive forecasts.
+**`SutteARIMA(endog, order="auto", seasonal_order=None, *, exog=None, trend=None, transform=None, weight=0.5)`** → `.fit(**fit_kwargs)` returns `SutteARIMAResults`.
 
-#### 3. Automatic Order Search: `find_order()`
-```python
-find_order(data: Sequence[float], max_p: int = 3, max_q: int = 3, ic: str = "AICc", verbose: bool = False) -> Tuple[int, int, int]
-```
-- Performs ADF unit-root tests to determine integration order $`d \in \{0, 1, 2\}`$.
-- Grid-searches all candidate combinations of $`p \in [0, \text{max\_p}]`$ and $`q \in [0, \text{max\_q}]`$.
-- Minimizes the designated information criterion (`"AICc"`, `"AIC"`, `"BIC"`, or `"HQIC"`).
+**`SutteARIMAResults`**
+* Estimates: `.params`, `.bse`, `.pvalues`, `.params_table()`, `.weight`, `.arima_fittedvalues`, `.sutte_fittedvalues`, `.fittedvalues`, `.resid`, `.resid_model`
+* Criteria: `.aic`, `.aicc`, `.bic`, `.hqic`, `.llf`
+* Diagnostics: `.durbin_watson`, `.ljung_box`, `.arch_lm`, `.jarque_bera`, `.heteroskedasticity`
+* In-sample accuracy: `.mape`, `.rmse`, `.mae`, `.u2`, `.tic`, `.mase`, ..., `.metrics()`, `.metrics_table()`
+* Forecasting: `.forecast(steps, alpha=0.05, exog=None, interval="arima")` → columns `SutteARIMA`, `ARIMA`, `AlphaSutte`, `Naive`, `Lower_95`, `Upper_95`
+* Out of sample: `.rolling_forecast(test, exog=None, refit_every=None)` → `Actual`, `SutteARIMA`, `ARIMA`, `AlphaSutte`, `Naive`; `.evaluate(test, exog=None, refit_every=None)`
+* Reporting: `.summary()`, `.plot(steps=None, alpha=0.05, exog=None)`
 
-#### 4. Model Estimation & Fitting: `class SutteARIMA`
-```python
-model = SutteARIMA(endog: Sequence[float], order: Union[str, Tuple[int, int, int]] = "auto", seasonal_order: Optional[Tuple[int, int, int, int]] = None)
-res = model.fit()
-```
-- Validates sample size ($`n \ge 8`$).
-- Supports explicit `order=(p, d, q)` or automated order selection `order="auto"`.
-- Supports seasonal specifications `seasonal_order=(P, D, Q, s)`.
-- Returns an instantiated `SutteARIMAResults` object.
+**Functions**
+* `find_order(data, max_p=3, max_q=3, ic="AICc", verbose=False, *, d=None, transform=None, trend=None, exog=None)`
+* `calculate_metrics(actual, predicted, train_data=None, benchmark=None)`
+* `diebold_mariano(errors_1, errors_2, h=1, power=2, harvey_correction=True)` → `statistic`, `p_value`, `mean_loss_differential`, `n` (negative statistic: model 1 more accurate)
+* `pesaran_timmermann(actual_change, predicted_change)` → `hit_rate`, `statistic`, `p_value` (one-sided)
+* `theil_u2(actual, predicted, benchmark)`
+* `AlphaSutte.step_increment(...)`, `AlphaSutte.compute_fitted(series)`, `AlphaSutte.compute_forecast(series, steps)`
 
-#### 5. Estimation Results Container: `class SutteARIMAResults`
-- **Parameters & Inference:** `.params`, `.bse`, `.pvalues`, `.params_table()`
-- **Information Criteria:** `.aic`, `.aicc`, `.bic`, `.hqic`, `.llf`
-- **Residual Diagnostics:** `.durbin_watson`, `.ljung_box`, `.jarque_bera`, `.heteroskedasticity`
-- **Forecasting:** `.forecast(steps=1, alpha=0.05) -> pd.DataFrame` (returns `hybrid_forecast`, `se`, `ci_lower`, `ci_upper`)
-- **Accuracy Tables:** `.metrics_table(test_data=None) -> pd.DataFrame`
-- **Summary:** `.summary() -> str` (produces statsmodels-style ASCII regression summary)
-- **Visualization:** `.plot(steps=None, alpha=0.05, figsize=(10, 5))`
-
----
-
-### 2.3 Installation & System Requirements
-
-Install directly from GitHub via `pip`:
+### Installation
 
 ```bash
 pip install --upgrade git+https://github.com/BahmanOrujov/sutte-ARIMA.git
 ```
 
-#### Core Dependencies:
-- `numpy >= 1.20`
-- `pandas >= 1.2`
-- `scipy >= 1.6`
-- `statsmodels >= 0.12`
-- `matplotlib` *(optional, for visualization)*
+Dependencies: `numpy`, `pandas`, `scipy`, `statsmodels` (`matplotlib` optional for plotting, `pytest` for the tests).
 
 ---
 
-### 2.4 Complete End-to-End Workflow
+# 5. End-to-end workflow
 
 ```python
-import statsmodels.api as sm
+import numpy as np
 from sutte_arima import SutteARIMA, find_order
 
-# 1. Load empirical dataset (e.g. Airline Passenger numbers)
-data = sm.datasets.get_rdataset("AirPassengers", "datasets").data["value"].values[:132]
+prices = ...                       # positive price series
+train, test = prices[:-250], prices[-250:]
 
-# ---------------------------------------------------------
-# Option A: Automatic Order Selection (Just 2 lines of code!)
-# ---------------------------------------------------------
-model = SutteARIMA(data)  # order='auto' by default (ADF test + AICc minimization)
-res = model.fit()
+# 1. Order on the log scale with drift (BIC is consistent for long daily series)
+order = find_order(train, ic="BIC", transform="log", trend="drift", verbose=True)
 
-# View full econometric summary table
+# 2. Fit the hybrid (original equal weight) and the data-driven weight
+res = SutteARIMA(train, order=order, transform="log", trend="drift").fit()
+res_opt = SutteARIMA(train, order=order, transform="log", trend="drift", weight="optimal").fit()
 print(res.summary())
+print("optimal weight on ARIMA:", res_opt.weight)
 
-# ---------------------------------------------------------
-# Option B: Explicit Econometric Order Specification
-# ---------------------------------------------------------
-model_manual = SutteARIMA(data, order=(0, 1, 1))
-res_manual = model_manual.fit()
+# 3. Leakage-free one-step-ahead evaluation against the naive forecast, monthly re-estimation
+print(res.evaluate(test, refit_every=21))
 
-# ---------------------------------------------------------
-# Multi-Step Out-of-Sample Forecasting (with 95% Confidence Intervals)
-# ---------------------------------------------------------
-forecast_df = res_manual.forecast(steps=6, alpha=0.05)
-print(forecast_df)
+# 4. Multi-step forecasts with ARIMA predictive intervals
+print(res.forecast(steps=10))
 
-# ---------------------------------------------------------
-# Visual Diagnostics (Actual vs. Fitted vs. 12-Step Forecast)
-# ---------------------------------------------------------
-res_manual.plot(steps=12)
+# 5. Exogenous regressors known in advance, e.g. yesterday's limit-up dummy.
+#    With d = 1 and transform="log", a growth-rate effect needs the cumulative sum:
+limit_up_yesterday = ...           # 0/1 array aligned with prices, built from t-1 information only
+X = np.cumsum(limit_up_yesterday).reshape(-1, 1)
+resx = SutteARIMA(train, order=order, transform="log", trend="drift", exog=X[:-250]).fit()
+print(resx.evaluate(test, exog=X[-250:], refit_every=21))
 ```
+
+Run the tests with `python -m pytest tests`.
 
 ---
 
-### 2.5 Formatted Estimation Summary Output
+# 6. References
 
-Calling `print(res.summary())` generates a comprehensive econometrics summary:
-
-```text
-========================================================================
-                  SutteARIMA Model Estimation Results                   
-========================================================================
- Dep. Variable       : y                      No. Observations : 132
- Model               : SutteARIMA(0, 1, 1)    Log-Likelihood   : -629.598  
- AIC                 : 1263.195               AICc             : 1263.288  
- BIC                 : 1268.945               HQIC             : 1265.532  
-------------------------------------------------------------------------
-              Model Accuracy Matrix (MAPE, MSE, RMSE, MAE)              
-------------------------------------------------------------------------
- MAPE (%)            : 9.3010 %               sMAPE (%)        : 9.3832 %
- MSE                 : 1099.6808              RMSE             : 33.1614   
- MAE                 : 25.1785                Theil's IC (TIC) : 0.0577    
- Max Error (MaxAE)   : 126.6663               Mean Bias (MBE)  : 0.0318    
-------------------------------------------------------------------------
-                         ARIMA Parameter Estimates                        
-------------------------------------------------------------------------
-              coef   std err         z     P>|z|     [0.025     0.975]
- ma.L1      0.3730    0.0886    4.2082    0.0000     0.1993     0.5468
- sigma2   873.9665   94.2428    9.2736    0.0000   689.2540  1058.6791
-------------------------------------------------------------------------
-                         Residual Diagnostic Tests                        
-------------------------------------------------------------------------
- Durbin-Watson       : 1.6834        (autocorrelation: ~2.0 is ideal)
- Ljung-Box (Q)       : 56.4081       Prob(Q)          : 0.0000 (white noise)
- Jarque-Bera (JB)    : 21.7344       Prob(JB)         : 0.0000 (normality)
- Heteroskedasticity  : 7.2562        Prob(H)          : 0.0000 (homoskedasticity)
- Skew                : -0.4515       Kurtosis         : 4.8055    
-========================================================================
-```
-
----
-
-# 3. Academic References
-
-1. **Ahmar, A. S.** (2017). "A Comparison of the α-Sutte Indicator and Moving Average (MA) Method in Forecasting Stock Prices." *International Journal of Advanced Science and Technology*, 103, 41–48.
-2. **Ahmar, A. S., Rahman, A., & Mulbar, U.** (2018). "α-Sutte Indicator: a new method for time series forecasting." *Journal of Physics: Conference Series*, 1040, 012018.
-3. **Ahmar, A. S., et al.** (2019). "SutteARIMA: Short-Term Forecasting Method." *Journal of Physics: Conference Series*, 1364, 012028.
-4. **Box, G. E., Jenkins, G. M., Reinsel, G. C., & Ljung, G. M.** (2015). *Time Series Analysis: Forecasting and Control*. 5th Edition, John Wiley & Sons.
-5. **Hurvich, C. M., & Tsai, C.-L.** (1989). "Regression and time series model selection in small samples." *Biometrika*, 76(2), 297–307.
+1. Ahmar, A. S. (2017). *sutteForecastR: Forecasting Data using Alpha-Sutte Indicator* (R package 0.1). CRAN.
+2. Ahmar, A. S., Rahman, A., & Mulbar, U. (2018). α-Sutte Indicator: a new method for time series forecasting. *Journal of Physics: Conference Series*, 1040, 012018.
+3. Ahmar, A. S., et al. (2019). SutteARIMA: Short-term forecasting method. *Journal of Physics: Conference Series*, 1364, 012028.
+4. Bates, J. M., & Granger, C. W. J. (1969). The combination of forecasts. *Operational Research Quarterly*, 20(4), 451–468.
+5. Box, G. E. P., & Tiao, G. C. (1975). Intervention analysis with applications to economic and environmental problems. *Journal of the American Statistical Association*, 70(349), 70–79.
+6. Box, G. E. P., Jenkins, G. M., Reinsel, G. C., & Ljung, G. M. (2015). *Time Series Analysis: Forecasting and Control* (5th ed.). Wiley.
+7. Diebold, F. X., & Mariano, R. S. (1995). Comparing predictive accuracy. *Journal of Business & Economic Statistics*, 13(3), 253–263.
+8. Engle, R. F. (1982). Autoregressive conditional heteroscedasticity with estimates of the variance of United Kingdom inflation. *Econometrica*, 50(4), 987–1007.
+9. Harvey, D., Leybourne, S., & Newbold, P. (1997). Testing the equality of prediction mean squared errors. *International Journal of Forecasting*, 13(2), 281–291.
+10. Hurvich, C. M., & Tsai, C.-L. (1989). Regression and time series model selection in small samples. *Biometrika*, 76(2), 297–307.
+11. Hyndman, R. J., & Koehler, A. B. (2006). Another look at measures of forecast accuracy. *International Journal of Forecasting*, 22(4), 679–688.
+12. Pesaran, M. H., & Timmermann, A. (1992). A simple nonparametric test of predictive performance. *Journal of Business & Economic Statistics*, 10(4), 461–465.
